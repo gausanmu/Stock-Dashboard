@@ -1,0 +1,101 @@
+{
+  "project_name": "NSE Autonomous Quant Engine",
+  "theme": "dark",
+  "archetype": "Archetype 4 (Swiss & High-Contrast) + Retro-Futurism/Terminal",
+  "design_philosophy": "Institutional, high-conviction, raw data, low-latency feel. We use the 'Control Room Grid' mode to optimize every pixel for data. Aesthetics derive from tactical minimalism and absolute precision. No soft shadows, no muddy gradients.",
+  "colors": {
+    "background": "#050505",
+    "surface": "#0C0C0C",
+    "surface_hover": "#1A1A1A",
+    "border": "#1F1F1F",
+    "text_primary": "#FFFFFF",
+    "text_secondary": "#A1A1AA",
+    "accent_sprinter": "#00E676",
+    "accent_compounder": "#2979FF",
+    "accent_reversal": "#FFB300",
+    "accent_quitter": "#FF3D00",
+    "accent_positive": "#00E676",
+    "accent_negative": "#FF3D00",
+    "macro_banner_bg": "#111111"
+  },
+  "typography": {
+    "heading_font": "Chivo",
+    "body_font": "JetBrains Mono",
+    "h1": "text-4xl tracking-tighter font-black uppercase",
+    "h2": "text-2xl tracking-tight font-bold",
+    "h3": "text-xl tracking-tight font-bold",
+    "label": "text-xs tracking-[0.1em] uppercase font-bold text-zinc-500",
+    "data_number": "text-base font-mono font-medium tracking-tight",
+    "data_number_large": "text-3xl font-mono font-bold tracking-tighter"
+  },
+  "spacing_and_layout": {
+    "strategy": "Control Room Grid",
+    "gap": "gap-4 md:gap-6",
+    "padding_standard": "p-4 md:p-6",
+    "border_radius": "rounded-none",
+    "border_style": "border border-[#1F1F1F]"
+  },
+  "motion_and_interactions": {
+    "hover": "Hard contrast shifts, no soft transitions (e.g., hover:bg-[#1A1A1A] hover:text-white).",
+    "focus": "focus:ring-1 focus:ring-white focus:outline-none focus:border-white",
+    "active": "active:scale-[0.98] transition-transform duration-75"
+  },
+  "components": {
+    "cards": "Flat background bg-[#0C0C0C], 1px subtle border (#1F1F1F), no shadow. rounded-none. Internal padding p-4 or p-6.",
+    "buttons": "Square edges. Primary: bg-white text-black hover:bg-zinc-200. Secondary: bg-transparent border border-[#1F1F1F] text-white hover:border-zinc-500. Tags: Use solid border with 10% opacity background of the accent color.",
+    "tables": "Dense, monospace numbers, right-aligned data, subtle bottom borders border-[#1F1F1F]. Hover row highlights bg-[#111111].",
+    "charts": "Recharts. Monotone lines or step-charts. No soft curves. Use brand accents for lines. Hidden grid lines or extremely faint (opacity 0.05). Tooltips must have dark background and sharp borders.",
+    "sheet_deep_dive": "Use Shadcn Sheet. Right-side slide-over. Width 90vw on mobile, 40vw on desktop. Heavy backdrop blur (backdrop-blur-2xl bg-black/60) with 1px border-l border-white/10.",
+    "badges": "Sharp, uppercase. Example: Gainer (text-[#00E676] border-[#00E676]/30 bg-[#00E676]/10). Quitter (text-[#FF3D00] border-[#FF3D00]/30 bg-[#FF3D00]/10)."
+  },
+  "pages_and_features": [
+    {
+      "name": "Macro Header (Top)",
+      "description": "Ticker tape showing Nifty 50, Bank Nifty, USD/INR, Crude. Uses react-fast-marquee. Very slow, monospace text.",
+      "layout": "Fixed top bar, h-10, border-b border-[#1F1F1F] flex items-center bg-[#050505]"
+    },
+    {
+      "name": "Dashboard Header & Command Scanner",
+      "description": "Header with title 'NSE Quant Engine' and a massive search input. 'Search NSE Universe...' with keyboard shortcut hint (Cmd+K).",
+      "layout": "Grid col-span-12 flex justify-between items-center py-6"
+    },
+    {
+      "name": "Market Confidence Score",
+      "description": "A single prominent widget showing a score (e.g., 78/100) and 'Risk-On' / 'Risk-Off' status. Use the generated abstract tactical grid as a faint background image.",
+      "layout": "col-span-12 md:col-span-4 h-full"
+    },
+    {
+      "name": "Regime Bento Box (Sprinter/Compounder/Reversal)",
+      "description": "3 columns: Sprinters, Compounders, Reversals. Each is a dense list of tickers with recent % change. Minimalist representation.",
+      "layout": "col-span-12 md:col-span-8 grid grid-cols-1 md:grid-cols-3 gap-4"
+    },
+    {
+      "name": "Portfolio & Watchlist",
+      "description": "Table view with explicit 'Gainer', 'Stayer', 'Quitter' tags. Include columns: Ticker, Price, 1D %, Regime, Tag, Quality Score. Tags are visually sharp, uppercase.",
+      "layout": "col-span-12"
+    }
+  ],
+  "media": {
+    "hero_background_url": "https://static.prod-images.emergentagent.com/jobs/3c68d8fc-9668-415d-a584-88ba9543e01c/images/57253c15b4486be9a987376253f6a2b340e5b3635b30147c600dbce901365f55.png",
+    "hero_background_desc": "Abstract tactical grid for the confidence score widget background (use with opacity-20)",
+    "user_avatar_url": "https://images.unsplash.com/photo-1629507208649-70919ca33793?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNDR8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBidXNpbmVzcyUyMHBvcnRyYWl0fGVufDB8fHx8MTc3NjA2OTg1Mnww&ixlib=rb-4.1.0&q=85",
+    "user_avatar_desc": "Professional user avatar for the top-right profile menu",
+    "texture_url": "https://images.unsplash.com/photo-1770745560263-a8fc696de90b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MDV8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMGRhcmslMjB0ZXh0dXJlfGVufDB8fHx8MTc3NjA2OTg1Mnww&ixlib=rb-4.1.0&q=85",
+    "texture_desc": "Abstract dark mesh to overlay in the Deep Dive sheet header (use with mix-blend-overlay or opacity-10)"
+  },
+  "development_instructions": {
+    "dependencies_to_install": [
+      "@phosphor-icons/react",
+      "react-fast-marquee",
+      "recharts",
+      "clsx",
+      "tailwind-merge",
+      "lucide-react"
+    ],
+    "shadcn_components": [
+      "table", "badge", "sheet", "input", "button", "tabs", "card"
+    ],
+    "global_css": "Ensure body background is #050505 and text is white. Hide scrollbars using tailwind utilities or custom css `::-webkit-scrollbar { display: none; }`. Use antialiasing. Import Chivo and JetBrains Mono from Google Fonts.",
+    "testing": "All interactive elements MUST have data-testid attributes like 'scanner-input', 'stock-row-{ticker}', 'deep-dive-close', 'regime-tab-{name}'."
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "summary": "Completed comprehensive testing of NSE Quant Engine Phase 2 features - all new backend APIs and frontend functionality working perfectly. Tested 5 new Phase 2 backend endpoints with 100% success rate and all new frontend features including 4 scan level buttons, Sectors/Alerts tabs, TRADE column, news sentiment analysis, and trade type classification.",
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "Backend API: GET /api/scan/levels returns scan level info (nifty50: 49 stocks, nifty100: 97 stocks, nifty200: 187 stocks, full: 286 stocks)",
+    "Backend API: GET /api/sectors/heatmap returns 11 sectors with performance data (avg_change, quality scores, regime counts)",
+    "Backend API: GET /api/news/TCS returns 8 articles with sentiment analysis (NEUTRAL 57/100 overall sentiment)",
+    "Backend API: GET /api/alerts/settings returns alert configuration (email: gauravmusale.gm.18@gmail.com, enabled: false)",
+    "Backend API: GET /api/alerts/regime-changes returns regime change history (0 changes currently)",
+    "Backend API: POST /api/scan/start with universe=nifty200 validated (scan already running, endpoint accepts request)",
+    "Frontend: Dashboard shows 4 scan level buttons (Nifty 50, 100, 200+, Full Market) - all clickable",
+    "Frontend: Tabs include Sectors and Alerts tabs alongside existing tabs",
+    "Frontend: Sectors tab shows 11 sector cards with performance bars and metrics (stocks, quality, sprinters, compounders)",
+    "Frontend: Alerts tab shows email config info (gauravmusale.gm.18@gmail.com) and regime change history section",
+    "Frontend: Stock table has TRADE column header with 20 trade type badges visible",
+    "Frontend: Clicking TCS stock opens DeepDive with news sentiment section working",
+    "Frontend: DeepDive shows trade type badges in Recommended Action section (INVEST badge for TCS)",
+    "Frontend: News articles load with sentiment badge (NEUTRAL 57/100) and 5 news articles displayed",
+    "Frontend: News sentiment analysis using GPT-5-nano working correctly with EMERGENT_LLM_KEY",
+    "All Phase 1 features continue to work: watchlist, portfolio, macro data, confidence widget, regime columns"
+  ],
+  "test_report_links": ["/app/backend_test.py"],
+  "success_percentage": {
+    "backend": "100% (22/22 API endpoints working including 5 new Phase 2 endpoints)",
+    "frontend": "100% (all Phase 2 UI components and integrations working)"
+  },
+  "updated_files": ["/app/backend_test.py"],
+  "action_item_for_main_agent": "",
+  "should_call_test_agent_after_fix": "false",
+  "should_main_agent_test_itself": "true"
+}
