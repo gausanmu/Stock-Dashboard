@@ -95,6 +95,18 @@ class AnalysisEngine:
 
             regime = self.classify_regime(current_price, sma50, sma200, rsi, vol_ratio, q_score, profile)
             
+            # Additional UI Elements Logic
+            trade_types = []
+            if regime == "SPRINTER": trade_types.append("MOMENTUM")
+            elif regime == "COMPOUNDER": trade_types.append("CORE")
+            elif regime == "REVERSAL": trade_types.append("SWING")
+            
+            gsq_tag = "STAYER"
+            if rsi > 75: gsq_tag = "QUITTER"
+            elif rsi < 35: gsq_tag = "GAINER"
+            
+            target_pct = 20.0 if regime == "COMPOUNDER" else (8.0 if regime in ["SPRINTER", "REVERSAL"] else 0.0)
+            
             return {
                 "ticker": ticker_symbol,
                 "name": info.get("shortName", ticker_symbol),
@@ -107,7 +119,10 @@ class AnalysisEngine:
                 "atr": round(atr, 2),
                 "vol_ratio": round(vol_ratio, 2),
                 "quality_score": q_score,
-                "regime": regime
+                "regime": regime,
+                "trade_types": trade_types,
+                "gsq_tag": gsq_tag,
+                "target_pct": target_pct
             }
         except Exception as e:
             logger.error(f"Error fetching {ticker_symbol}: {e}")

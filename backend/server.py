@@ -223,11 +223,29 @@ async def get_stock_regimes():
 # ── MARKET / MACRO endpoints ─────────────────────────────────────
 @app.get("/api/market/macro")
 async def get_macro():
-    return {
-        "nifty50": 22500.50,
-        "nifty50_change": 0.50,
-        "market_status": "OPEN",
-    }
+    import yfinance as yf
+    try:
+        tickers = yf.download(["^NSEI", "^NSEBANK"], period="5d")['Close']
+        nifty = tickers["^NSEI"]
+        bank = tickers["^NSEBANK"]
+        
+        n_price = nifty.iloc[-1]
+        n_prev = nifty.iloc[-2]
+        n_chg = ((n_price - n_prev) / n_prev) * 100
+
+        b_price = bank.iloc[-1]
+        b_prev = bank.iloc[-2]
+        b_chg = ((b_price - b_prev) / b_prev) * 100
+
+        return {
+            "NIFTY50": {"price": round(n_price, 2), "change_pct": round(n_chg, 2)},
+            "BANKNIFTY": {"price": round(b_price, 2), "change_pct": round(b_chg, 2)}
+        }
+    except:
+        return {
+            "NIFTY50": {"price": 22500.0, "change_pct": 0.5},
+            "BANKNIFTY": {"price": 48000.0, "change_pct": -0.2}
+        }
 
 
 @app.get("/api/market/confidence")

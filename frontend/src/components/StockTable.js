@@ -86,7 +86,7 @@ export default function StockTable({
               { key: "regime", label: "REGIME", align: "center" },
               { key: "quality_score", label: "QUALITY", align: "right" },
               { key: "rsi", label: "RSI", align: "right" },
-              { key: "volume_ratio", label: "VOL", align: "right" },
+              { key: "vol_ratio", label: "VOL", align: "right" },
               { key: "trade_types", label: "TRADE", align: "center" },
               { key: "gsq_tag", label: "TAG", align: "center" },
               { key: "target_pct", label: "TARGET", align: "right" },
@@ -160,7 +160,7 @@ export default function StockTable({
                   {s.rsi?.toFixed(1)}
                 </TableCell>
                 <TableCell className="text-right text-xs text-[#A1A1AA]">
-                  {s.volume_ratio?.toFixed(2)}x
+                  {s.vol_ratio?.toFixed(2)}x
                 </TableCell>
                 <TableCell className="text-center">
                   <div className="flex gap-0.5 justify-center flex-wrap">
