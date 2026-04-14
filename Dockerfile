@@ -1,5 +1,5 @@
-# Use Python 3.10 slim image
-FROM python:3.10-slim AS backend-builder
+# Use Python 3.11 slim image
+FROM python:3.11-slim AS backend-builder
 
 # Set working directory for backend
 WORKDIR /app/backend
@@ -14,20 +14,21 @@ WORKDIR /app/frontend
 
 # Install dependencies and build React app
 COPY frontend/package.json frontend/package-lock.json* ./
-RUN npm install
+RUN npm install --legacy-peer-deps
 
 COPY frontend/ .
+ENV CI=false
 RUN npm run build
 
 # Final Unified Image
-FROM python:3.10-slim
+FROM python:3.11-slim
 WORKDIR /app
 
 # Install bash/curl in final image just in case
 RUN apt-get update && apt-get install -y --no-install-recommends curl bash && rm -rf /var/lib/apt/lists/*
 
 # Copy python dependencies
-COPY --from=backend-builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
+COPY --from=backend-builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=backend-builder /usr/local/bin /usr/local/bin
 
 # Copy backend source
