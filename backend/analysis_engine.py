@@ -2,6 +2,8 @@ import json
 import urllib.request
 import urllib.error
 import logging
+import yfinance as yf
+import numpy as pd
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +14,14 @@ class AnalysisEngine:
             return float(val)
         except (ValueError, TypeError):
             return default
+
+    def calculate_atr(self, h, l, c, period=14):
+        if len(c) < period: return 1.0
+        tr_list = []
+        for i in range(1, len(c)):
+            tr = max(h[i] - l[i], abs(h[i] - c[i-1]), abs(l[i] - c[i-1]))
+            tr_list.append(tr)
+        return sum(tr_list[-period:]) / period if tr_list else 1.0
 
     def calculate_rsi(self, prices, period=14):
         if len(prices) < period + 1: return 50.0
@@ -40,43 +50,63 @@ class AnalysisEngine:
     def analyze_stock(self, ticker_symbol, profile="INVESTOR"):
         try:
             ticker = ticker_symbol if ticker_symbol.endswith(".NS") else f"{ticker_symbol}.NS"
-            url = f"https://query2.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=1y"
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=5) as response:
-                data = json.loads(response.read().decode())
             
-            result = data["chart"]["result"][0]
-            meta = result["meta"]
-            current_price = self._safe(meta.get("regularMarketPrice"))
-            prev_close = self._safe(meta.get("previousClose"))
-            change_pct = ((current_price - prev_close) / prev_close * 100) if prev_close else 0.0
+            # Fetch real fundamental data using yfinance
+            stock = yf.Ticker(ticker)
+            info = stock.info
+            hist = stock.history(period="1y")
+            
+            if hist.empty: return None
 
-            close_prices = result["indicators"]["quote"][0].get("close", [])
-            close_prices = [p for p in close_prices if p is not None]
+            current_price = hist['Close'].iloc[-1]
+            prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else current_price
+            change_pct = ((current_price - prev_close) / prev_close * 100)
             
-            if not close_prices: return None
+            close_prices = hist['Close'].tolist()
+            high_prices = hist['High'].tolist()
+            low_prices = hist['Low'].tolist()
 
             sma50 = self.calculate_sma(close_prices, 50)
             sma200 = self.calculate_sma(close_prices, 200)
             rsi = self.calculate_rsi(close_prices, 14)
+            atr = self.calculate_atr(high_prices, low_prices, close_prices, 14)
             
-            # Simple heuristic for volatility/quality
-            vol_ratio = 1.2 if change_pct > 2 else 0.9
-            quality_score = int(60 + min(change_pct * 5, 30))
+            # Real volatility ratio (ATR % of Price) vs normal
+            avg_volatility = (atr / current_price) if current_price > 0 else 0.05
+            vol_ratio = avg_volatility * 100 # percentage
 
-            regime = self.classify_regime(current_price, sma50, sma200, rsi, vol_ratio, quality_score, profile)
+            # Real Fundamental Scoring
+            roe = info.get("returnOnEquity", 0) or 0
+            debt_to_eq = info.get("debtToEquity", 100) or 100
+            margins = info.get("profitMargins", 0) or 0
+            
+            q_score = 0
+            if roe > 0.15: q_score += 30
+            elif roe > 0.05: q_score += 15
+            
+            if debt_to_eq < 50: q_score += 30
+            elif debt_to_eq < 100: q_score += 15
+            
+            if margins > 0.10: q_score += 20
+            elif margins > 0.05: q_score += 10
+            
+            if q_score == 0: # Fallback if missing data
+                q_score = int(50 + min(change_pct * 5, 20))
+
+            regime = self.classify_regime(current_price, sma50, sma200, rsi, vol_ratio, q_score, profile)
             
             return {
                 "ticker": ticker_symbol,
-                "name": ticker_symbol,
+                "name": info.get("shortName", ticker_symbol),
                 "price": round(current_price, 2),
                 "change_pct": round(change_pct, 2),
-                "sector": "NSE Component",
+                "sector": info.get("sector", "NSE Component"),
                 "sma50": round(sma50, 2),
                 "sma200": round(sma200, 2),
                 "rsi": round(rsi, 2),
+                "atr": round(atr, 2),
                 "vol_ratio": round(vol_ratio, 2),
-                "quality_score": max(10, min(100, quality_score)),
+                "quality_score": q_score,
                 "regime": regime
             }
         except Exception as e:

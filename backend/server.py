@@ -13,6 +13,7 @@ from analysis_engine import AnalysisEngine
 from nse_universe import get_tickers, get_scan_info
 from news_sentiment import NewsSentimentEngine
 from alert_service import AlertService
+from risk_manager import RiskManager
 
 # Logging
 logging.basicConfig(level=logging.INFO)
@@ -39,6 +40,7 @@ alert_settings = {"email": "", "enabled": False}
 engine = AnalysisEngine()
 news_engine = NewsSentimentEngine()
 alert_service = AlertService()
+risk_mgr = RiskManager(account_size=50000.0)
 
 
 # ── Pydantic models ──────────────────────────────────────────────
@@ -164,7 +166,24 @@ async def search_stocks(q: str = ""):
 async def get_stock_detail(ticker: str):
     t = ticker.upper()
     if t in stocks_db:
-        return stocks_db[t]
+        data = stocks_db[t].copy()
+        
+        # Inject Advanced Risk Metrics dynamically
+        portfolio_tickers = list(portfolio_db.keys())
+        corr_data = risk_mgr.check_correlation(t, portfolio_tickers)
+        data["correlation_warning"] = corr_data
+        
+        # Recommend position size
+        size_data = risk_mgr.position_sizing_kelly(
+            win_rate=0.55, 
+            win_loss_ratio=2.0, 
+            current_price=data["price"], 
+            stop_loss_price=data["price"] * 0.90 # Default 10% stop loss
+        )
+        data["position_sizing"] = size_data
+        
+        return data
+        
     raise HTTPException(status_code=404, detail="Stock not found. Run a scan first.")
 
 
@@ -307,6 +326,10 @@ async def get_portfolio():
         })
     total_pnl = total_current - total_invested
     total_pnl_pct = (total_pnl / total_invested * 100) if total_invested > 0 else 0
+    
+    # Advanced Risk Analysis
+    risk_analysis = risk_mgr.analyze_portfolio_risk(items, total_current)
+    
     return {
         "items": items,
         "summary": {
@@ -314,7 +337,8 @@ async def get_portfolio():
             "total_current": round(total_current, 2),
             "total_pnl": round(total_pnl, 2),
             "total_pnl_pct": round(total_pnl_pct, 2),
-        }
+        },
+        "risk": risk_analysis
     }
 
 
