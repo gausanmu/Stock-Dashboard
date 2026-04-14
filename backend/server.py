@@ -165,6 +165,16 @@ async def search_stocks(q: str = ""):
 @app.get("/api/stocks/{ticker}")
 async def get_stock_detail(ticker: str):
     t = ticker.upper()
+    if t not in stocks_db:
+        # Try to scan it on the fly!
+        result = engine.analyze_stock(t)
+        if result:
+            result["sector"] = result.get("sector", "General")
+            result["change_pct"] = result.get("change_pct", 0)
+            stocks_db[t] = result
+        else:
+            raise HTTPException(status_code=404, detail="Stock not found or invalid ticker.")
+
     if t in stocks_db:
         data = stocks_db[t].copy()
         

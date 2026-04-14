@@ -356,12 +356,34 @@ export default function Dashboard() {
               {/* Stock tabs */}
               {["all", "sprinters", "compounders", "reversals"].map((tab) => (
                 <TabsContent key={tab} value={tab} className="mt-0">
-                  <StockTable
-                    stocks={tabStocks}
-                    onSelectStock={setSelectedStock}
-                    onAddToWatchlist={handleAddToWatchlist}
-                    watchlistTickers={watchlistTickers}
-                  />
+                  {tabStocks.length === 0 && searchQuery ? (
+                    <div className="py-16 text-center text-[#555] text-sm flex flex-col items-center">
+                      <p>No local stocks match "{searchQuery}".</p>
+                      <Button
+                        onClick={async () => {
+                          toast.info(`Fetching ${searchQuery.toUpperCase()} from NSE...`);
+                          try {
+                            await api.getStockDetail(searchQuery.toUpperCase());
+                            await fetchStocks();
+                            toast.success(`Successfully added ${searchQuery.toUpperCase()}!`);
+                          } catch(e) {
+                            toast.error(`Could not find ${searchQuery.toUpperCase()} on NSE.`);
+                          }
+                        }}
+                        className="mt-4 bg-[#FFB300] text-black hover:bg-[#FFC107] rounded-none h-8 text-[10px] uppercase font-bold"
+                      >
+                        <Search className="w-3.5 h-3.5 mr-2" />
+                        Scan '{searchQuery.toUpperCase()}' Manually
+                      </Button>
+                    </div>
+                  ) : (
+                    <StockTable
+                      stocks={tabStocks}
+                      onSelectStock={setSelectedStock}
+                      onAddToWatchlist={handleAddToWatchlist}
+                      watchlistTickers={watchlistTickers}
+                    />
+                  )}
                 </TabsContent>
               ))}
 
