@@ -34,7 +34,7 @@ stocks_db = {}          # ticker -> stock data dict
 watchlist_db = {}       # ticker -> { ticker, tag, added_at }
 portfolio_db = {}       # ticker -> { ticker, buy_price, quantity, tag }
 regime_changes_db = []  # list of { ticker, name, old_regime, new_regime, timestamp }
-scan_state = {"running": False, "progress": 0, "total": 0, "current_ticker": ""}
+scan_state = {"running": False, "progress": 0, "total": 0, "current_ticker": "", "last_updated": None}
 alert_settings = {"email": "", "enabled": False}
 
 engine = AnalysisEngine()
@@ -116,6 +116,7 @@ def run_scan_worker(tickers, profile):
 
     scan_state["running"] = False
     scan_state["current_ticker"] = ""
+    scan_state["last_updated"] = datetime.now().isoformat()
     logger.info("Scan complete.")
 
 
@@ -329,19 +330,92 @@ async def update_watchlist_tag(ticker: str, tag: str = "STAYER"):
 
 
 # ── PORTFOLIO endpoints ──────────────────────────────────────────
+
+def _recommend_action(buy_price, current_price, pnl_pct, stock_data):
+    """
+    Returns (action, reason) tuple for a portfolio holding.
+    Rules (evaluated top-to-bottom, first match wins):
+      1. Stop-loss hit: P&L <= -10%           -> SELL  "Stop Loss Hit (-10%)"
+      2. Regime = AVOID                       -> SELL  "Weak Trend / Avoid Regime"
+      3. Target reached (Compounder >= +20%)  -> SELL  "Target Reached"
+      4. Target reached (Sprinter >= +15%)    -> SELL  "Momentum Target Hit"
+      5. RSI > 80 (heavily overbought)        -> SELL  "Overbought (RSI > 80)"
+      6. Sprinter + up > 5%                   -> ADD   "Momentum – Pyramid Into Strength"
+      7. Compounder + up > 3%                 -> HOLD  "Compounding – Stay The Course"
+      8. Default                              -> HOLD  "Trend Intact"
+    """
+    regime = stock_data.get("regime", "NEUTRAL")
+    rsi = stock_data.get("rsi", 50)
+    quality = stock_data.get("quality_score", 50)
+    target_pct = stock_data.get("target_pct", 0)
+
+    # 1. Hard stop-loss
+    if pnl_pct <= -10:
+        return "SELL", "Stop Loss Hit (-10%)"
+
+    # 2. Regime collapse
+    if regime == "AVOID":
+        return "SELL", "Weak Trend / Avoid Regime"
+
+    # 3. Target reached – Compounder
+    if regime == "COMPOUNDER" and pnl_pct >= 20:
+        return "SELL", "Target Reached (+20%)"
+
+    # 4. Target reached – Sprinter
+    if regime == "SPRINTER" and pnl_pct >= 15:
+        return "SELL", "Momentum Target Hit (+15%)"
+
+    # 5. Overbought
+    if rsi > 80:
+        return "SELL", f"Overbought (RSI {round(rsi, 1)})"
+
+    # 6. Momentum add
+    if regime == "SPRINTER" and pnl_pct > 5:
+        return "ADD", "Momentum – Pyramid Into Strength"
+
+    # 7. Compounder hold
+    if regime == "COMPOUNDER" and pnl_pct > 3:
+        return "HOLD", "Compounding – Stay The Course"
+
+    # 8. Reversal / early stage
+    if regime == "REVERSAL":
+        if pnl_pct > 0:
+            return "HOLD", "Reversal Playing Out – Lock Partial?"
+        else:
+            return "HOLD", "Reversal In Progress – Patience"
+
+    # Default
+    if quality >= 60:
+        return "HOLD", "Fundamentals Strong – Trend Intact"
+    
+    return "HOLD", "Trend Intact"
+
+
 @app.get("/api/portfolio")
 async def get_portfolio():
     items = []
     total_invested = 0
     total_current = 0
+    sell_count = 0
+    add_count = 0
+    
     for ticker, p in portfolio_db.items():
-        current_price = stocks_db.get(ticker, {}).get("price", p["buy_price"])
+        stock_data = stocks_db.get(ticker, {})
+        current_price = stock_data.get("price", p["buy_price"])
         invested = p["buy_price"] * p["quantity"]
         current_val = current_price * p["quantity"]
         pnl = current_val - invested
         pnl_pct = (pnl / invested * 100) if invested > 0 else 0
         total_invested += invested
         total_current += current_val
+        
+        # Generate recommendation
+        action, reason = _recommend_action(p["buy_price"], current_price, pnl_pct, stock_data)
+        if action == "SELL":
+            sell_count += 1
+        elif action == "ADD":
+            add_count += 1
+
         items.append({
             "ticker": ticker,
             "buy_price": p["buy_price"],
@@ -350,7 +424,12 @@ async def get_portfolio():
             "pnl": round(pnl, 2),
             "pnl_pct": round(pnl_pct, 2),
             "tag": p.get("tag", "STAYER"),
-            "stock_data": stocks_db.get(ticker, {}),
+            "stock_data": stock_data,
+            "action": action,
+            "action_reason": reason,
+            "regime": stock_data.get("regime", "NEUTRAL"),
+            "rsi": stock_data.get("rsi", 50),
+            "quality_score": stock_data.get("quality_score", 0),
         })
     total_pnl = total_current - total_invested
     total_pnl_pct = (total_pnl / total_invested * 100) if total_invested > 0 else 0
@@ -365,6 +444,9 @@ async def get_portfolio():
             "total_current": round(total_current, 2),
             "total_pnl": round(total_pnl, 2),
             "total_pnl_pct": round(total_pnl_pct, 2),
+            "sell_signals": sell_count,
+            "add_signals": add_count,
+            "hold_count": len(items) - sell_count - add_count,
         },
         "risk": risk_analysis
     }

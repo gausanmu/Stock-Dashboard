@@ -56,14 +56,40 @@ export default function Dashboard() {
   const fetchWatchlist = useCallback(async () => {
     try {
       const res = await api.getWatchlist();
-      setWatchlist(res.data || []);
+      let data = res.data || [];
+      
+      const localWatchlistStr = localStorage.getItem("my_watchlist_items");
+      if (localWatchlistStr) {
+        const localItems = JSON.parse(localWatchlistStr);
+        if (data.length === 0 && localItems.length > 0) {
+           for (const item of localItems) {
+               try { await api.addToWatchlist(item); } catch(e){}
+           }
+           const freshRes = await api.getWatchlist();
+           data = freshRes.data || [];
+        }
+      }
+      setWatchlist(data);
     } catch (e) { /* silent */ }
   }, []);
 
   const fetchPortfolio = useCallback(async () => {
     try {
       const res = await api.getPortfolio();
-      setPortfolio(res.data || { items: [], summary: {} });
+      let data = res.data || { items: [], summary: {} };
+      
+      const localPortfolioStr = localStorage.getItem("my_portfolio_items");
+      if (localPortfolioStr) {
+        const localItems = JSON.parse(localPortfolioStr);
+        if (data.items?.length === 0 && localItems.length > 0) {
+           for (const item of localItems) {
+               try { await api.addToPortfolio(item); } catch(e){}
+           }
+           const freshRes = await api.getPortfolio();
+           data = freshRes.data || { items: [], summary: {} };
+        }
+      }
+      setPortfolio(data);
     } catch (e) { /* silent */ }
   }, []);
 
@@ -128,6 +154,14 @@ export default function Dashboard() {
   const handleAddToWatchlist = async (ticker, tag = "STAYER") => {
     try {
       await api.addToWatchlist({ ticker: ticker.toUpperCase(), tag });
+      
+      const localStr = localStorage.getItem("my_watchlist_items");
+      const localItems = localStr ? JSON.parse(localStr) : [];
+      if (!localItems.find((i) => i.ticker === ticker.toUpperCase())) {
+         localItems.push({ ticker: ticker.toUpperCase(), tag });
+         localStorage.setItem("my_watchlist_items", JSON.stringify(localItems));
+      }
+
       toast.success(`${ticker} added to watchlist`);
       fetchWatchlist();
     } catch (e) {
@@ -138,6 +172,13 @@ export default function Dashboard() {
   const handleRemoveWatchlist = async (ticker) => {
     try {
       await api.removeFromWatchlist(ticker);
+
+      const localStr = localStorage.getItem("my_watchlist_items");
+      if (localStr) {
+         const localItems = JSON.parse(localStr).filter((i) => i.ticker !== ticker);
+         localStorage.setItem("my_watchlist_items", JSON.stringify(localItems));
+      }
+
       toast.success(`${ticker} removed`);
       fetchWatchlist();
     } catch (e) {
@@ -148,6 +189,14 @@ export default function Dashboard() {
   const handleAddToPortfolio = async (data) => {
     try {
       await api.addToPortfolio(data);
+      
+      const localStr = localStorage.getItem("my_portfolio_items");
+      const localItems = localStr ? JSON.parse(localStr) : [];
+      if (!localItems.find((i) => i.ticker === data.ticker)) {
+         localItems.push(data);
+         localStorage.setItem("my_portfolio_items", JSON.stringify(localItems));
+      }
+
       toast.success(`${data.ticker} added to portfolio`);
       fetchPortfolio();
     } catch (e) {
@@ -158,6 +207,13 @@ export default function Dashboard() {
   const handleRemovePortfolio = async (ticker) => {
     try {
       await api.removeFromPortfolio(ticker);
+      
+      const localStr = localStorage.getItem("my_portfolio_items");
+      if (localStr) {
+         const localItems = JSON.parse(localStr).filter((i) => i.ticker !== ticker);
+         localStorage.setItem("my_portfolio_items", JSON.stringify(localItems));
+      }
+
       toast.success(`${ticker} removed`);
       fetchPortfolio();
     } catch (e) {
@@ -219,6 +275,10 @@ export default function Dashboard() {
             </h1>
             <p className="text-[#A1A1AA] text-[10px] tracking-[0.15em] uppercase mt-1">
               Autonomous Investment Intelligence
+            </p>
+            <p className="text-[#555] text-[10px] tracking-wider uppercase mt-2">
+              Data Source: Yahoo Finance (Delayed) 
+              {scanStatus.last_updated && ` | Last Updated: ${new Date(scanStatus.last_updated).toLocaleString()}`}
             </p>
           </div>
           <div className="flex items-center gap-3 w-full md:w-auto">
@@ -486,27 +546,60 @@ export default function Dashboard() {
               {/* Portfolio Tab */}
               <TabsContent value="portfolio" className="mt-4">
                 {portfolio.summary && portfolio.items?.length > 0 && (
-                  <div data-testid="portfolio-summary" className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                    {[
-                      { label: "Invested", value: formatPrice(portfolio.summary.total_invested) },
-                      { label: "Current", value: formatPrice(portfolio.summary.total_current) },
-                      {
-                        label: "P&L",
-                        value: formatPrice(portfolio.summary.total_pnl),
-                        color: portfolio.summary.total_pnl >= 0 ? "text-[#00E676]" : "text-[#FF3D00]",
-                      },
-                      {
-                        label: "P&L %",
-                        value: formatPct(portfolio.summary.total_pnl_pct),
-                        color: portfolio.summary.total_pnl_pct >= 0 ? "text-[#00E676]" : "text-[#FF3D00]",
-                      },
-                    ].map((m) => (
-                      <div key={m.label} className="bg-[#0C0C0C] border border-[#1F1F1F] p-3">
-                        <p className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] mb-1">{m.label}</p>
-                        <p className={`text-sm font-medium ${m.color || "text-white"}`}>{m.value}</p>
+                  <>
+                    {/* Summary Cards */}
+                    <div data-testid="portfolio-summary" className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-4">
+                      {[
+                        { label: "Invested", value: formatPrice(portfolio.summary.total_invested) },
+                        { label: "Current", value: formatPrice(portfolio.summary.total_current) },
+                        {
+                          label: "P&L",
+                          value: formatPrice(portfolio.summary.total_pnl),
+                          color: portfolio.summary.total_pnl >= 0 ? "text-[#00E676]" : "text-[#FF3D00]",
+                        },
+                        {
+                          label: "P&L %",
+                          value: formatPct(portfolio.summary.total_pnl_pct),
+                          color: portfolio.summary.total_pnl_pct >= 0 ? "text-[#00E676]" : "text-[#FF3D00]",
+                        },
+                        {
+                          label: "Sell Signals",
+                          value: portfolio.summary.sell_signals ?? 0,
+                          color: (portfolio.summary.sell_signals || 0) > 0 ? "text-[#FF3D00]" : "text-[#555]",
+                        },
+                        {
+                          label: "Hold",
+                          value: portfolio.summary.hold_count ?? 0,
+                          color: "text-[#A1A1AA]",
+                        },
+                        {
+                          label: "Add Signals",
+                          value: portfolio.summary.add_signals ?? 0,
+                          color: (portfolio.summary.add_signals || 0) > 0 ? "text-[#00E676]" : "text-[#555]",
+                        },
+                      ].map((m) => (
+                        <div key={m.label} className="bg-[#0C0C0C] border border-[#1F1F1F] p-3">
+                          <p className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] mb-1">{m.label}</p>
+                          <p className={`text-sm font-medium ${m.color || "text-white"}`}>{m.value}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Risk Warnings */}
+                    {portfolio.risk && portfolio.risk.warnings?.length > 0 && (
+                      <div className="mb-4 space-y-2">
+                        {portfolio.risk.warnings.map((w, i) => (
+                          <div key={i} className={`p-3 border text-xs font-medium ${
+                            w.includes("CRITICAL")
+                              ? "bg-[#FF3D00]/10 border-[#FF3D00]/30 text-[#FF3D00]"
+                              : "bg-[#FFB300]/10 border-[#FFB300]/30 text-[#FFB300]"
+                          }`}>
+                            ⚠ {w}
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    )}
+                  </>
                 )}
                 {(!portfolio.items || portfolio.items.length === 0) ? (
                   <p className="text-center text-[#555] text-xs py-12">
@@ -517,43 +610,79 @@ export default function Dashboard() {
                     <TableHeader>
                       <TableRow className="border-b border-[#1F1F1F] hover:bg-transparent">
                         <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA]">Ticker</TableHead>
-                        <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] text-right">Buy Price</TableHead>
-                        <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] text-right">Current</TableHead>
+                        <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] text-right">Buy</TableHead>
+                        <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] text-right">CMP</TableHead>
                         <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] text-right">Qty</TableHead>
-                        <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] text-right">P&L %</TableHead>
-                        <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] text-center">Tag</TableHead>
+                        <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] text-right">P&L</TableHead>
+                        <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] text-center">Regime</TableHead>
+                        <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] text-center">RSI</TableHead>
+                        <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] text-center">Action</TableHead>
                         <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] text-center"></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {portfolio.items.map((p) => (
-                        <TableRow
-                          key={p.ticker}
-                          data-testid={`portfolio-row-${p.ticker}`}
-                          className="border-b border-[#1F1F1F] hover:bg-[#111111] cursor-pointer"
-                          onClick={() => p.stock_data && setSelectedStock(p.stock_data)}
-                        >
-                          <TableCell className="text-xs text-white font-medium">{p.ticker}</TableCell>
-                          <TableCell className="text-right text-xs text-[#A1A1AA]">{formatPrice(p.buy_price)}</TableCell>
-                          <TableCell className="text-right text-xs text-white">{formatPrice(p.current_price)}</TableCell>
-                          <TableCell className="text-right text-xs text-[#A1A1AA]">{p.quantity}</TableCell>
-                          <TableCell className={`text-right text-xs font-medium ${p.pnl_pct >= 0 ? "text-[#00E676]" : "text-[#FF3D00]"}`}>
-                            {formatPct(p.pnl_pct)}
-                          </TableCell>
-                          <TableCell className="text-center">
-                            <span className={`regime-badge gsq-${(p.tag || "stayer").toLowerCase()}`}>{p.tag}</span>
-                          </TableCell>
-                          <TableCell className="text-center">
-                            <button
-                              data-testid={`remove-portfolio-${p.ticker}`}
-                              onClick={(e) => { e.stopPropagation(); handleRemovePortfolio(p.ticker); }}
-                              className="p-1 hover:bg-[#1A1A1A] text-[#555] hover:text-[#FF3D00]"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {portfolio.items.map((p) => {
+                        const actionColor =
+                          p.action === "SELL"
+                            ? "bg-[#FF3D00]/15 text-[#FF3D00] border-[#FF3D00]/40"
+                            : p.action === "ADD"
+                            ? "bg-[#00E676]/15 text-[#00E676] border-[#00E676]/40"
+                            : "bg-[#A1A1AA]/10 text-[#A1A1AA] border-[#A1A1AA]/30";
+                        const rowHighlight =
+                          p.action === "SELL"
+                            ? "border-l-2 border-l-[#FF3D00]"
+                            : p.action === "ADD"
+                            ? "border-l-2 border-l-[#00E676]"
+                            : "";
+                        return (
+                          <TableRow
+                            key={p.ticker}
+                            data-testid={`portfolio-row-${p.ticker}`}
+                            className={`border-b border-[#1F1F1F] hover:bg-[#111111] cursor-pointer transition-colors ${rowHighlight}`}
+                            onClick={() => p.stock_data && setSelectedStock(p.stock_data)}
+                          >
+                            <TableCell className="py-2.5">
+                              <span className="text-xs text-white font-medium">{p.ticker}</span>
+                            </TableCell>
+                            <TableCell className="text-right text-xs text-[#A1A1AA]">{formatPrice(p.buy_price)}</TableCell>
+                            <TableCell className="text-right text-xs text-white">{formatPrice(p.current_price)}</TableCell>
+                            <TableCell className="text-right text-xs text-[#A1A1AA]">{p.quantity}</TableCell>
+                            <TableCell className="text-right">
+                              <span className={`text-xs font-bold ${p.pnl_pct >= 0 ? "text-[#00E676]" : "text-[#FF3D00]"}`}>
+                                {formatPct(p.pnl_pct)}
+                              </span>
+                              <p className={`text-[10px] ${p.pnl >= 0 ? "text-[#00E676]/60" : "text-[#FF3D00]/60"}`}>
+                                {formatPrice(p.pnl)}
+                              </p>
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <span className={`regime-badge regime-${(p.regime || "neutral").toLowerCase()}`}>{p.regime || "-"}</span>
+                            </TableCell>
+                            <TableCell className="text-center text-xs text-[#A1A1AA]">
+                              {typeof p.rsi === "number" ? p.rsi.toFixed(1) : "-"}
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <div className="flex flex-col items-center gap-0.5">
+                                <span className={`inline-block px-2 py-0.5 text-[10px] font-black uppercase tracking-wider border ${actionColor}`}>
+                                  {p.action || "HOLD"}
+                                </span>
+                                <span className="text-[9px] text-[#555] max-w-[120px] leading-tight">
+                                  {p.action_reason || ""}
+                                </span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <button
+                                data-testid={`remove-portfolio-${p.ticker}`}
+                                onClick={(e) => { e.stopPropagation(); handleRemovePortfolio(p.ticker); }}
+                                className="p-1 hover:bg-[#1A1A1A] text-[#555] hover:text-[#FF3D00]"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 )}
@@ -612,6 +741,15 @@ export default function Dashboard() {
         onAddToWatchlist={handleAddToWatchlist}
         onAddToPortfolio={handleAddToPortfolio}
       />
+
+      {/* SEBI Disclaimer Footer */}
+      <footer className="w-full border-t border-[#1F1F1F] bg-[#0C0C0C] py-6 mt-12">
+        <div className="max-w-[1920px] mx-auto px-4 md:px-6 text-center">
+          <p className="text-[#555] text-[10px] sm:text-xs uppercase tracking-wider">
+            <strong>Disclaimer:</strong> This tool is for educational/informational purposes only. Not SEBI registered. Not investment advice. Investments in securities market are subject to market risks.
+          </p>
+        </div>
+      </footer>
     </div>
   );
 }
