@@ -6,7 +6,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 class RiskManager:
-    def __init__(self, account_size=50000.0, max_portfolio_drawdown=0.15, max_sector_allocation=0.30):
+    def __init__(self, account_size=80000.0, max_portfolio_drawdown=0.15, max_sector_allocation=0.30):
         self.account_size = account_size
         self.max_portfolio_drawdown = max_portfolio_drawdown
         self.max_sector_allocation = max_sector_allocation

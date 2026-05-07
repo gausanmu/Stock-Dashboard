@@ -50,16 +50,34 @@ def recommend(stock: dict, buy_price: float, profile: str = "LONG_TERM", buy_dat
         stop_distance = max(atr * 1.5, price * 0.025)
         hold_min, hold_max, hold_unit = 5, 25, "days"
     else:  # LONG_TERM (default)
-        # 25–60% target, stop = SMA200 break or 12% trail
+        # Resistance-based target: use 52-week high as natural ceiling.
+        # If price is within 5% of 52w high, target a breakout (52w * 1.05).
+        # Otherwise target the 52w high itself.
+        # Falls back to flat percentage if 52w data is missing.
+        high_52w = _safe(stock.get("high_52w"), 0)
         if regime in ("COMPOUNDER", "WEALTH_BUILDER"):
-            target_gain_pct = 45.0
             hold_min, hold_max, hold_unit = 12, 36, "months"
+            fallback_pct = 45.0
         elif regime == "SPRINTER":
-            target_gain_pct = 30.0
             hold_min, hold_max, hold_unit = 6, 18, "months"
+            fallback_pct = 30.0
         else:
-            target_gain_pct = 20.0
             hold_min, hold_max, hold_unit = 6, 12, "months"
+            fallback_pct = 20.0
+
+        if high_52w > 0 and price > 0:
+            proximity = price / high_52w  # 1.0 = at 52w high
+            if proximity >= 0.95:
+                # Near 52w high: target a breakout above it
+                target_gain_pct = ((high_52w * 1.05) / buy_price - 1) * 100
+            else:
+                # Below 52w high: target the resistance level
+                target_gain_pct = ((high_52w) / buy_price - 1) * 100
+            # Floor: never set a target below the fallback %
+            target_gain_pct = max(target_gain_pct, fallback_pct * 0.5)
+        else:
+            target_gain_pct = fallback_pct
+
         stop_distance = max(price - sma200, price * 0.12)
 
     # ── Compute target & stop based on entry (buy_price) ──────────

@@ -55,7 +55,7 @@ def _alert_settings():
 
 engine = AnalysisEngine()
 alert_service = AlertService()
-risk_mgr = RiskManager(account_size=50000.0)
+risk_mgr = RiskManager(account_size=80000.0)
 
 
 # ── Pydantic models ──────────────────────────────────────────────
