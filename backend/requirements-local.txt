@@ -1,0 +1,16 @@
+# Core dependencies for local Windows development
+fastapi
+uvicorn
+pydantic
+python-dotenv
+python-multipart
+yfinance
+pandas
+numpy
+pytz
+beautifulsoup4
+feedparser
+requests
+pymongo
+cachetools
+apscheduler

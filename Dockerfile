@@ -18,6 +18,7 @@ RUN npm install --legacy-peer-deps
 
 COPY frontend/ .
 ENV CI=false
+ENV REACT_APP_BACKEND_URL=""
 RUN npm run build
 
 # Final Unified Image

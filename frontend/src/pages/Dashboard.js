@@ -1,755 +1,205 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
-import { formatPrice, formatPct } from "@/lib/format";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Toaster, toast } from "sonner";
-import { Search, Zap, RefreshCw, Trash2 } from "lucide-react";
-import MacroTicker from "@/components/MacroTicker";
-import ConfidenceWidget from "@/components/ConfidenceWidget";
-import RegimeColumns from "@/components/RegimeColumns";
-import StockTable from "@/components/StockTable";
+import { Toaster } from "sonner";
+import Sidebar from "@/components/layout/Sidebar";
+import TopBar from "@/components/layout/TopBar";
+import OverviewView from "@/components/views/OverviewView";
+import TraderModeView from "@/components/views/TraderModeView";
+import PortfolioView from "@/components/views/PortfolioView";
+import WatchlistView from "@/components/views/WatchlistView";
+import SectorsView from "@/components/views/SectorsView";
+import AlertsView from "@/components/views/AlertsView";
+import NewsView from "@/components/views/NewsView";
 import DeepDiveSheet from "@/components/DeepDiveSheet";
+import { toast } from "sonner";
 
-const BG_URL =
-  "https://static.prod-images.emergentagent.com/jobs/3c68d8fc-9668-415d-a584-88ba9543e01c/images/57253c15b4486be9a987376253f6a2b340e5b3635b30147c600dbce901365f55.png";
+// Maps section id -> backend profile (used for the "Run Scan" button in TopBar)
+const SECTION_TO_PROFILE = {
+  long_term:  "LONG_TERM",
+  swing:      "SWING",
+  short_term: "SHORT_TERM",
+};
 
 export default function Dashboard() {
-  const [stocks, setStocks] = useState([]);
+  const [section, setSection] = useState("overview");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [scanStatus, setScanStatus] = useState({ running: false, progress: 0, total: 0, profile: "LONG_TERM" });
   const [macro, setMacro] = useState({});
   const [confidence, setConfidence] = useState({ score: 50, status: "CAUTIOUS" });
-  const [watchlist, setWatchlist] = useState([]);
-  const [portfolio, setPortfolio] = useState({ items: [], summary: {} });
   const [selectedStock, setSelectedStock] = useState(null);
-  const [activeTab, setActiveTab] = useState("all");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [scanStatus, setScanStatus] = useState({ running: false, progress: 0, total: 0 });
-  const [loading, setLoading] = useState(true);
-  const [sectors, setSectors] = useState([]);
-  const [regimeChanges, setRegimeChanges] = useState([]);
+  const [selectedStockData, setSelectedStockData] = useState(null);
+  const [universe, setUniverse] = useState("nifty50");
 
-  const fetchStocks = useCallback(async () => {
-    try {
-      const res = await api.getStocks();
-      setStocks(res.data || []);
-    } catch (e) { /* silent */ }
-  }, []);
-
-  const fetchMacro = useCallback(async () => {
-    try {
-      const res = await api.getConfidence();
-      setMacro(res.data?.macro || {});
-      setConfidence({ score: res.data?.score, status: res.data?.status });
-    } catch (e) { /* silent */ }
-  }, []);
-
-  const fetchWatchlist = useCallback(async () => {
-    try {
-      const res = await api.getWatchlist();
-      let data = res.data || [];
-      
-      const localWatchlistStr = localStorage.getItem("my_watchlist_items");
-      if (localWatchlistStr) {
-        const localItems = JSON.parse(localWatchlistStr);
-        if (data.length === 0 && localItems.length > 0) {
-           for (const item of localItems) {
-               try { await api.addToWatchlist(item); } catch(e){}
-           }
-           const freshRes = await api.getWatchlist();
-           data = freshRes.data || [];
-        }
-      }
-      setWatchlist(data);
-    } catch (e) { /* silent */ }
-  }, []);
-
-  const fetchPortfolio = useCallback(async () => {
-    try {
-      const res = await api.getPortfolio();
-      let data = res.data || { items: [], summary: {} };
-      
-      const localPortfolioStr = localStorage.getItem("my_portfolio_items");
-      if (localPortfolioStr) {
-        const localItems = JSON.parse(localPortfolioStr);
-        if (data.items?.length === 0 && localItems.length > 0) {
-           for (const item of localItems) {
-               try { await api.addToPortfolio(item); } catch(e){}
-           }
-           const freshRes = await api.getPortfolio();
-           data = freshRes.data || { items: [], summary: {} };
-        }
-      }
-      setPortfolio(data);
-    } catch (e) { /* silent */ }
-  }, []);
-
-  const fetchSectors = useCallback(async () => {
-    try {
-      const res = await api.getSectorHeatmap();
-      setSectors(res.data || []);
-    } catch (e) { /* silent */ }
-  }, []);
-
-  const fetchRegimeChanges = useCallback(async () => {
-    try {
-      const res = await api.getRegimeChanges(20);
-      setRegimeChanges(res.data || []);
-    } catch (e) { /* silent */ }
-  }, []);
-
-  const fetchScanStatus = useCallback(async () => {
-    try {
-      const res = await api.getScanStatus();
-      const prev = scanStatus.running;
-      setScanStatus(res.data);
-      if (prev && !res.data.running) {
-        toast.success(`Scan complete! ${res.data.progress} stocks analyzed.`);
-        fetchStocks();
-      }
-    } catch (e) { /* silent */ }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scanStatus.running, fetchStocks]);
-
+  // Fetch stock detail when a ticker is selected
   useEffect(() => {
-    const init = async () => {
-      setLoading(true);
-      await Promise.all([fetchStocks(), fetchMacro(), fetchWatchlist(), fetchPortfolio(), fetchSectors(), fetchRegimeChanges()]);
-      const ss = await api.getScanStatus().catch(() => ({ data: {} }));
-      setScanStatus(ss.data || {});
-      setLoading(false);
-    };
-    init();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (!scanStatus.running) return;
-    const id = setInterval(() => {
-      fetchScanStatus();
-      fetchStocks();
-    }, 5000);
-    return () => clearInterval(id);
-  }, [scanStatus.running, fetchScanStatus, fetchStocks]);
-
-  const handleStartScan = async (universe = "nifty50") => {
-    try {
-      await api.startScan(universe);
-      setScanStatus({ running: true, progress: 0, total: universe === "nifty50" ? 50 : 100 });
-      toast.info("Scan started! Analyzing stocks...");
-    } catch (e) {
-      toast.error(e.response?.data?.detail || "Failed to start scan");
+    if (!selectedStock) {
+      setSelectedStockData(null);
+      return;
     }
-  };
+    api.getStockDetail(selectedStock)
+      .then(r => setSelectedStockData(r.data))
+      .catch(() => {
+        toast.error(`No data for ${selectedStock}. Run a scan first or check ticker.`);
+        setSelectedStockData(null);
+        setSelectedStock(null);
+      });
+  }, [selectedStock]);
 
-  const handleAddToWatchlist = async (ticker, tag = "STAYER") => {
+  const handleAddToWatchlist = async (ticker) => {
     try {
-      await api.addToWatchlist({ ticker: ticker.toUpperCase(), tag });
-      
-      const localStr = localStorage.getItem("my_watchlist_items");
-      const localItems = localStr ? JSON.parse(localStr) : [];
-      if (!localItems.find((i) => i.ticker === ticker.toUpperCase())) {
-         localItems.push({ ticker: ticker.toUpperCase(), tag });
-         localStorage.setItem("my_watchlist_items", JSON.stringify(localItems));
-      }
-
+      await api.addToWatchlist({ ticker, tag: "STAYER" });
       toast.success(`${ticker} added to watchlist`);
-      fetchWatchlist();
     } catch (e) {
-      toast.error(e.response?.data?.detail || "Failed to add");
-    }
-  };
-
-  const handleRemoveWatchlist = async (ticker) => {
-    try {
-      await api.removeFromWatchlist(ticker);
-
-      const localStr = localStorage.getItem("my_watchlist_items");
-      if (localStr) {
-         const localItems = JSON.parse(localStr).filter((i) => i.ticker !== ticker);
-         localStorage.setItem("my_watchlist_items", JSON.stringify(localItems));
-      }
-
-      toast.success(`${ticker} removed`);
-      fetchWatchlist();
-    } catch (e) {
-      toast.error("Failed to remove");
+      toast.error(e?.response?.data?.detail || "Failed");
     }
   };
 
   const handleAddToPortfolio = async (data) => {
     try {
-      await api.addToPortfolio(data);
-      
-      const localStr = localStorage.getItem("my_portfolio_items");
-      const localItems = localStr ? JSON.parse(localStr) : [];
-      if (!localItems.find((i) => i.ticker === data.ticker)) {
-         localItems.push(data);
-         localStorage.setItem("my_portfolio_items", JSON.stringify(localItems));
-      }
-
+      await api.addToPortfolio({ ...data, profile: activeProfile, buy_date: new Date().toISOString() });
       toast.success(`${data.ticker} added to portfolio`);
-      fetchPortfolio();
     } catch (e) {
-      toast.error(e.response?.data?.detail || "Failed to add");
+      toast.error(e?.response?.data?.detail || "Failed");
     }
   };
 
-  const handleRemovePortfolio = async (ticker) => {
+  // Poll scan status whenever scanning
+  const fetchScanStatus = useCallback(async () => {
     try {
-      await api.removeFromPortfolio(ticker);
-      
-      const localStr = localStorage.getItem("my_portfolio_items");
-      if (localStr) {
-         const localItems = JSON.parse(localStr).filter((i) => i.ticker !== ticker);
-         localStorage.setItem("my_portfolio_items", JSON.stringify(localItems));
-      }
+      const res = await api.getScanStatus();
+      setScanStatus(res.data || {});
+    } catch (e) { /* silent */ }
+  }, []);
 
-      toast.success(`${ticker} removed`);
-      fetchPortfolio();
+  useEffect(() => {
+    fetchScanStatus();
+    const t = setInterval(fetchScanStatus, 2500);
+    return () => clearInterval(t);
+  }, [fetchScanStatus]);
+
+  // Macro & confidence
+  useEffect(() => {
+    const load = () => {
+      api.getConfidence().then(r => {
+        setMacro(r.data?.macro || {});
+        setConfidence({ score: r.data?.score, status: r.data?.status });
+      }).catch(() => {});
+    };
+    load();
+    const t = setInterval(load, 60000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Active profile for TopBar pill: derive from section, else fallback to current scan profile
+  const activeProfile = SECTION_TO_PROFILE[section] || scanStatus.profile || "LONG_TERM";
+
+  const handleScan = async () => {
+    if (scanStatus.running) {
+      toast.info(`Already scanning (${scanStatus.profile})`);
+      return;
+    }
+    try {
+      await api.startScan(universe, activeProfile);
+      const label = universe.replace(/^./, c => c.toUpperCase());
+      toast.success(`Scanning ${label} in ${activeProfile.replace("_", " ")} mode`);
     } catch (e) {
-      toast.error("Failed to remove");
+      toast.error(e?.response?.data?.detail || "Failed to start");
     }
   };
 
-  const watchlistTickers = useMemo(
-    () => new Set(watchlist.map((w) => w.ticker)),
-    [watchlist]
-  );
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return;
+    const q = searchQuery.trim().toUpperCase().replace(".NS", "");
+    setSelectedStock(q);
+  };
 
-  const filteredStocks = useMemo(() => {
-    let list = stocks;
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      list = list.filter(
-        (s) =>
-          s.ticker?.toLowerCase().includes(q) ||
-          s.name?.toLowerCase().includes(q) ||
-          s.sector?.toLowerCase().includes(q)
-      );
-    }
-    return list;
-  }, [stocks, searchQuery]);
-
-  const tabStocks = useMemo(() => {
-    switch (activeTab) {
-      case "sprinters":
-        return filteredStocks.filter((s) => s.regime === "SPRINTER");
-      case "compounders":
-        return filteredStocks.filter((s) => s.regime === "COMPOUNDER");
-      case "reversals":
-        return filteredStocks.filter((s) => s.regime === "REVERSAL");
+  const renderSection = () => {
+    switch (section) {
+      case "overview":
+        return <OverviewView onNavigate={setSection} />;
+      case "long_term":
+      case "swing":
+      case "short_term":
+        return (
+          <TraderModeView
+            mode={section}
+            scanStatus={scanStatus}
+            universe={universe}
+            onSelectStock={(t) => setSelectedStock(t)}
+          />
+        );
+      case "news":
+        return <NewsView onSelectStock={(t) => setSelectedStock(t)} />;
+      case "portfolio":
+        return <PortfolioView onSelectStock={(t) => setSelectedStock(t)} />;
+      case "watchlist":
+        return <WatchlistView onSelectStock={(t) => setSelectedStock(t)} />;
+      case "sectors":
+        return <SectorsView />;
+      case "alerts":
+        return <AlertsView />;
       default:
-        return filteredStocks;
+        return <OverviewView onNavigate={setSection} />;
     }
-  }, [filteredStocks, activeTab]);
-
-  const regimeCounts = useMemo(() => {
-    const c = { SPRINTER: 0, COMPOUNDER: 0, REVERSAL: 0 };
-    stocks.forEach((s) => {
-      if (c[s.regime] !== undefined) c[s.regime]++;
-    });
-    return c;
-  }, [stocks]);
+  };
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white">
-      <Toaster theme="dark" richColors position="top-right" />
-      <MacroTicker data={macro} />
+    <div className="flex flex-col md:flex-row h-screen bg-slate-950 text-white overflow-hidden" data-testid="dashboard-root">
+      {/* Background layers */}
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute top-0 left-1/4 w-[600px] h-[600px] bg-emerald-500/10 rounded-full blur-3xl" />
+        <div className="absolute bottom-0 right-1/4 w-[500px] h-[500px] bg-fuchsia-500/10 rounded-full blur-3xl" />
+        <div
+          className="absolute inset-0 opacity-[0.02]"
+          style={{
+            backgroundImage:
+              "radial-gradient(circle at 1px 1px, white 1px, transparent 0)",
+            backgroundSize: "32px 32px",
+          }}
+        />
+      </div>
 
-      <div className="max-w-[1920px] mx-auto px-4 md:px-6 pb-16">
-        {/* Header */}
-        <header className="flex flex-col md:flex-row items-start md:items-center justify-between py-6 gap-4">
-          <div>
-            <h1 className="font-display text-3xl sm:text-4xl tracking-tighter font-black uppercase">
-              NSE Quant Engine
-            </h1>
-            <p className="text-[#A1A1AA] text-[10px] tracking-[0.15em] uppercase mt-1">
-              Autonomous Investment Intelligence
-            </p>
-            <p className="text-[#555] text-[10px] tracking-wider uppercase mt-2">
-              Data Source: Yahoo Finance (Delayed) 
-              {scanStatus.last_updated && ` | Last Updated: ${new Date(scanStatus.last_updated).toLocaleString()}`}
-            </p>
-          </div>
-          <div className="flex items-center gap-3 w-full md:w-auto">
-            <div className="relative flex-1 md:w-72">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555]" />
-              <Input
-                data-testid="scanner-input"
-                placeholder="Search ticker, name, sector..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 bg-[#0C0C0C] border-[#1F1F1F] text-white placeholder:text-[#555] rounded-none h-9 text-xs"
-              />
-            </div>
-            <Button
-              data-testid="scan-nifty50-btn"
-              onClick={() => handleStartScan("nifty50")}
-              disabled={scanStatus.running}
-              className="bg-white text-black hover:bg-zinc-200 rounded-none h-9 font-display font-bold uppercase tracking-wider text-[10px] px-3"
-            >
-              {scanStatus.running ? (
-                <><RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Scanning</>
-              ) : (
-                <><Zap className="w-3.5 h-3.5 mr-1.5" /> Nifty 50</>
-              )}
-            </Button>
-            <Button
-              data-testid="scan-nifty100-btn"
-              onClick={() => handleStartScan("nifty100")}
-              disabled={scanStatus.running}
-              variant="outline"
-              className="bg-transparent border-[#1F1F1F] text-white hover:border-[#A1A1AA] hover:text-white rounded-none h-9 font-display font-bold uppercase tracking-wider text-[10px] px-3"
-            >
-              100
-            </Button>
-            <Button
-              data-testid="scan-nifty200-btn"
-              onClick={() => handleStartScan("nifty200")}
-              disabled={scanStatus.running}
-              variant="outline"
-              className="bg-transparent border-[#1F1F1F] text-white hover:border-[#A1A1AA] hover:text-white rounded-none h-9 font-display font-bold uppercase tracking-wider text-[10px] px-3"
-            >
-              200+
-            </Button>
-            <Button
-              data-testid="scan-full-btn"
-              onClick={() => handleStartScan("full")}
-              disabled={scanStatus.running}
-              variant="outline"
-              className="bg-transparent border-[#1F1F1F] text-[#FFB300] hover:border-[#FFB300] hover:text-[#FFB300] rounded-none h-9 font-display font-bold uppercase tracking-wider text-[10px] px-3"
-            >
-              Full Market
-            </Button>
-          </div>
-        </header>
+      <Sidebar active={section} onChange={setSection} />
 
-        {/* Scan Progress */}
+      <div className="flex-1 flex flex-col min-w-0 relative">
+        <TopBar
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          onSearch={handleSearch}
+          profile={activeProfile}
+          scanStatus={scanStatus}
+          onScan={handleScan}
+          macro={macro}
+          confidence={confidence}
+          universe={universe}
+          onUniverseChange={setUniverse}
+        />
+
+        {/* Scan progress strip */}
         {scanStatus.running && (
-          <div data-testid="scan-progress" className="mb-6 p-4 bg-[#0C0C0C] border border-[#1F1F1F] animate-fade-in">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA]">
-                Scanning: <span className="text-white">{scanStatus.current_ticker}</span>
-              </span>
-              <span className="text-xs text-white">
-                {scanStatus.progress}/{scanStatus.total}
-              </span>
+          <div className="px-6 py-2 bg-emerald-500/10 border-b border-emerald-500/20 text-xs text-emerald-200 flex items-center gap-3" data-testid="scan-progress-strip">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span>Scanning {scanStatus.universe || scanStatus.profile?.replace("_", " ")} · {scanStatus.current_ticker}</span>
+            <div className="flex-1 h-1 bg-emerald-900/40 rounded-full overflow-hidden">
+              <div className="h-full bg-emerald-400 transition-all" style={{ width: `${(scanStatus.progress / Math.max(scanStatus.total, 1)) * 100}%` }} />
             </div>
-            <Progress
-              value={scanStatus.total > 0 ? (scanStatus.progress / scanStatus.total) * 100 : 0}
-              className="h-1"
-            />
+            <span className="tabular-nums">{scanStatus.progress}/{scanStatus.total}</span>
           </div>
         )}
 
-        {/* Empty State */}
-        {!loading && stocks.length === 0 && !scanStatus.running && (
-          <div data-testid="empty-state" className="py-20 text-center animate-fade-in">
-            <div className="inline-block p-8 bg-[#0C0C0C] border border-[#1F1F1F]">
-              <Zap className="w-8 h-8 text-[#A1A1AA] mx-auto mb-4" />
-              <h2 className="font-display text-xl font-bold mb-2">No Data Yet</h2>
-              <p className="text-xs text-[#A1A1AA] max-w-md mb-6">
-                Start your first scan to analyze NSE stocks. The engine will fetch
-                live data, calculate technical indicators, score fundamentals, and
-                classify each stock into regimes.
-              </p>
-              <Button
-                data-testid="empty-start-scan-btn"
-                onClick={() => handleStartScan("nifty50")}
-                className="bg-white text-black hover:bg-zinc-200 rounded-none font-display font-bold uppercase tracking-wider text-xs px-8 h-10"
-              >
-                <Zap className="w-4 h-4 mr-2" />
-                Start Nifty 50 Scan
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Main Content */}
-        {(stocks.length > 0 || loading) && (
-          <>
-            {/* Grid: Confidence + Regimes */}
-            <div className="grid grid-cols-12 gap-4 md:gap-6 mb-6">
-              <ConfidenceWidget data={confidence} backgroundUrl={BG_URL} />
-              <RegimeColumns stocks={stocks} onSelectStock={setSelectedStock} />
-            </div>
-
-            {/* Tabs & Table */}
-            <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className="bg-[#0C0C0C] border border-[#1F1F1F] rounded-none h-9 p-0.5 flex-wrap">
-                <TabsTrigger data-testid="tab-all" value="all" className="rounded-none data-[state=active]:bg-white data-[state=active]:text-black text-[#A1A1AA] text-[10px] uppercase tracking-wider font-bold h-7 px-3">
-                  All ({stocks.length})
-                </TabsTrigger>
-                <TabsTrigger data-testid="tab-sprinters" value="sprinters" className="rounded-none data-[state=active]:bg-[#00E676] data-[state=active]:text-black text-[#A1A1AA] text-[10px] uppercase tracking-wider font-bold h-7 px-3">
-                  Sprinters ({regimeCounts.SPRINTER})
-                </TabsTrigger>
-                <TabsTrigger data-testid="tab-compounders" value="compounders" className="rounded-none data-[state=active]:bg-[#2979FF] data-[state=active]:text-black text-[#A1A1AA] text-[10px] uppercase tracking-wider font-bold h-7 px-3">
-                  Compounders ({regimeCounts.COMPOUNDER})
-                </TabsTrigger>
-                <TabsTrigger data-testid="tab-reversals" value="reversals" className="rounded-none data-[state=active]:bg-[#FFB300] data-[state=active]:text-black text-[#A1A1AA] text-[10px] uppercase tracking-wider font-bold h-7 px-3">
-                  Reversals ({regimeCounts.REVERSAL})
-                </TabsTrigger>
-                <TabsTrigger data-testid="tab-sectors" value="sectors" className="rounded-none data-[state=active]:bg-white data-[state=active]:text-black text-[#A1A1AA] text-[10px] uppercase tracking-wider font-bold h-7 px-3">
-                  Sectors ({sectors.length})
-                </TabsTrigger>
-                <TabsTrigger data-testid="tab-watchlist" value="watchlist" className="rounded-none data-[state=active]:bg-white data-[state=active]:text-black text-[#A1A1AA] text-[10px] uppercase tracking-wider font-bold h-7 px-3">
-                  Watchlist ({watchlist.length})
-                </TabsTrigger>
-                <TabsTrigger data-testid="tab-portfolio" value="portfolio" className="rounded-none data-[state=active]:bg-white data-[state=active]:text-black text-[#A1A1AA] text-[10px] uppercase tracking-wider font-bold h-7 px-3">
-                  Portfolio ({portfolio.items?.length || 0})
-                </TabsTrigger>
-                <TabsTrigger data-testid="tab-alerts" value="alerts" className="rounded-none data-[state=active]:bg-white data-[state=active]:text-black text-[#A1A1AA] text-[10px] uppercase tracking-wider font-bold h-7 px-3">
-                  Alerts
-                </TabsTrigger>
-              </TabsList>
-
-              {/* Stock tabs */}
-              {["all", "sprinters", "compounders", "reversals"].map((tab) => (
-                <TabsContent key={tab} value={tab} className="mt-0">
-                  {tabStocks.length === 0 && searchQuery ? (
-                    <div className="py-16 text-center text-[#555] text-sm flex flex-col items-center">
-                      <p>No local stocks match "{searchQuery}".</p>
-                      <Button
-                        onClick={async () => {
-                          toast.info(`Fetching ${searchQuery.toUpperCase()} from NSE...`);
-                          try {
-                            await api.getStockDetail(searchQuery.toUpperCase());
-                            await fetchStocks();
-                            toast.success(`Successfully added ${searchQuery.toUpperCase()}!`);
-                          } catch(e) {
-                            toast.error(`Could not find ${searchQuery.toUpperCase()} on NSE.`);
-                          }
-                        }}
-                        className="mt-4 bg-[#FFB300] text-black hover:bg-[#FFC107] rounded-none h-8 text-[10px] uppercase font-bold"
-                      >
-                        <Search className="w-3.5 h-3.5 mr-2" />
-                        Scan '{searchQuery.toUpperCase()}' Manually
-                      </Button>
-                    </div>
-                  ) : (
-                    <StockTable
-                      stocks={tabStocks}
-                      onSelectStock={setSelectedStock}
-                      onAddToWatchlist={handleAddToWatchlist}
-                      watchlistTickers={watchlistTickers}
-                    />
-                  )}
-                </TabsContent>
-              ))}
-
-              {/* Watchlist Tab */}
-              <TabsContent value="watchlist" className="mt-4">
-
-              {/* Sectors Tab */}
-              </TabsContent>
-              <TabsContent value="sectors" className="mt-4">
-                {sectors.length === 0 ? (
-                  <p className="text-center text-[#555] text-xs py-12">No sector data. Run a scan first.</p>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {sectors.map((sec) => (
-                      <div key={sec.sector} data-testid={`sector-card-${sec.sector}`} className="bg-[#0C0C0C] border border-[#1F1F1F] p-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs text-white font-medium">{sec.sector}</span>
-                          <span className={`text-xs font-bold ${sec.avg_change >= 0 ? "text-[#00E676]" : "text-[#FF3D00]"}`}>
-                            {sec.avg_change >= 0 ? "+" : ""}{sec.avg_change}%
-                          </span>
-                        </div>
-                        <div className="w-full h-1.5 bg-[#1F1F1F] mb-3">
-                          <div
-                            className="h-full"
-                            style={{
-                              width: `${Math.min(Math.abs(sec.avg_change) * 10, 100)}%`,
-                              backgroundColor: sec.avg_change >= 0 ? "#00E676" : "#FF3D00",
-                            }}
-                          />
-                        </div>
-                        <div className="grid grid-cols-4 gap-2 text-[10px]">
-                          <div><span className="text-[#555]">Stocks</span><p className="text-white">{sec.count}</p></div>
-                          <div><span className="text-[#555]">Quality</span><p className="text-white">{sec.avg_quality}</p></div>
-                          <div><span className="text-[#00E676]">Sprint</span><p className="text-white">{sec.sprinters}</p></div>
-                          <div><span className="text-[#2979FF]">Comp</span><p className="text-white">{sec.compounders}</p></div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </TabsContent>
-
-              <TabsContent value="watchlist" className="mt-4">
-                {watchlist.length === 0 ? (
-                  <p className="text-center text-[#555] text-xs py-12">
-                    Watchlist is empty. Add stocks from the scanner.
-                  </p>
-                ) : (
-                  <Table data-testid="watchlist-table">
-                    <TableHeader>
-                      <TableRow className="border-b border-[#1F1F1F] hover:bg-transparent">
-                        <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA]">Ticker</TableHead>
-                        <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] text-right">Price</TableHead>
-                        <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] text-right">Chg%</TableHead>
-                        <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] text-center">Regime</TableHead>
-                        <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] text-right">Quality</TableHead>
-                        <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] text-center">Tag</TableHead>
-                        <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] text-center"></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {watchlist.map((w) => {
-                        const sd = w.stock_data || {};
-                        return (
-                          <TableRow
-                            key={w.ticker}
-                            data-testid={`watchlist-row-${w.ticker}`}
-                            className="border-b border-[#1F1F1F] hover:bg-[#111111] cursor-pointer"
-                            onClick={() => sd.ticker && setSelectedStock(sd)}
-                          >
-                            <TableCell className="text-xs text-white font-medium">{w.ticker}</TableCell>
-                            <TableCell className="text-right text-xs text-white">{formatPrice(sd.price)}</TableCell>
-                            <TableCell className={`text-right text-xs ${sd.change_pct >= 0 ? "text-[#00E676]" : "text-[#FF3D00]"}`}>
-                              {formatPct(sd.change_pct)}
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <span className={`regime-badge regime-${(sd.regime || "neutral").toLowerCase()}`}>{sd.regime || "-"}</span>
-                            </TableCell>
-                            <TableCell className="text-right text-xs text-white">{sd.quality_score ?? "-"}</TableCell>
-                            <TableCell className="text-center">
-                              <span className={`regime-badge gsq-${(w.tag || "stayer").toLowerCase()}`}>{w.tag}</span>
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <button
-                                data-testid={`remove-watchlist-${w.ticker}`}
-                                onClick={(e) => { e.stopPropagation(); handleRemoveWatchlist(w.ticker); }}
-                                className="p-1 hover:bg-[#1A1A1A] text-[#555] hover:text-[#FF3D00]"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                )}
-              </TabsContent>
-
-              {/* Portfolio Tab */}
-              <TabsContent value="portfolio" className="mt-4">
-                {portfolio.summary && portfolio.items?.length > 0 && (
-                  <>
-                    {/* Summary Cards */}
-                    <div data-testid="portfolio-summary" className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-4">
-                      {[
-                        { label: "Invested", value: formatPrice(portfolio.summary.total_invested) },
-                        { label: "Current", value: formatPrice(portfolio.summary.total_current) },
-                        {
-                          label: "P&L",
-                          value: formatPrice(portfolio.summary.total_pnl),
-                          color: portfolio.summary.total_pnl >= 0 ? "text-[#00E676]" : "text-[#FF3D00]",
-                        },
-                        {
-                          label: "P&L %",
-                          value: formatPct(portfolio.summary.total_pnl_pct),
-                          color: portfolio.summary.total_pnl_pct >= 0 ? "text-[#00E676]" : "text-[#FF3D00]",
-                        },
-                        {
-                          label: "Sell Signals",
-                          value: portfolio.summary.sell_signals ?? 0,
-                          color: (portfolio.summary.sell_signals || 0) > 0 ? "text-[#FF3D00]" : "text-[#555]",
-                        },
-                        {
-                          label: "Hold",
-                          value: portfolio.summary.hold_count ?? 0,
-                          color: "text-[#A1A1AA]",
-                        },
-                        {
-                          label: "Add Signals",
-                          value: portfolio.summary.add_signals ?? 0,
-                          color: (portfolio.summary.add_signals || 0) > 0 ? "text-[#00E676]" : "text-[#555]",
-                        },
-                      ].map((m) => (
-                        <div key={m.label} className="bg-[#0C0C0C] border border-[#1F1F1F] p-3">
-                          <p className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] mb-1">{m.label}</p>
-                          <p className={`text-sm font-medium ${m.color || "text-white"}`}>{m.value}</p>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Risk Warnings */}
-                    {portfolio.risk && portfolio.risk.warnings?.length > 0 && (
-                      <div className="mb-4 space-y-2">
-                        {portfolio.risk.warnings.map((w, i) => (
-                          <div key={i} className={`p-3 border text-xs font-medium ${
-                            w.includes("CRITICAL")
-                              ? "bg-[#FF3D00]/10 border-[#FF3D00]/30 text-[#FF3D00]"
-                              : "bg-[#FFB300]/10 border-[#FFB300]/30 text-[#FFB300]"
-                          }`}>
-                            ⚠ {w}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                )}
-                {(!portfolio.items || portfolio.items.length === 0) ? (
-                  <p className="text-center text-[#555] text-xs py-12">
-                    Portfolio is empty. Add stocks from the deep dive panel.
-                  </p>
-                ) : (
-                  <Table data-testid="portfolio-table">
-                    <TableHeader>
-                      <TableRow className="border-b border-[#1F1F1F] hover:bg-transparent">
-                        <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA]">Ticker</TableHead>
-                        <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] text-right">Buy</TableHead>
-                        <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] text-right">CMP</TableHead>
-                        <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] text-right">Qty</TableHead>
-                        <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] text-right">P&L</TableHead>
-                        <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] text-center">Regime</TableHead>
-                        <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] text-center">RSI</TableHead>
-                        <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] text-center">Action</TableHead>
-                        <TableHead className="text-[10px] tracking-[0.1em] uppercase text-[#A1A1AA] text-center"></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {portfolio.items.map((p) => {
-                        const actionColor =
-                          p.action === "SELL"
-                            ? "bg-[#FF3D00]/15 text-[#FF3D00] border-[#FF3D00]/40"
-                            : p.action === "ADD"
-                            ? "bg-[#00E676]/15 text-[#00E676] border-[#00E676]/40"
-                            : "bg-[#A1A1AA]/10 text-[#A1A1AA] border-[#A1A1AA]/30";
-                        const rowHighlight =
-                          p.action === "SELL"
-                            ? "border-l-2 border-l-[#FF3D00]"
-                            : p.action === "ADD"
-                            ? "border-l-2 border-l-[#00E676]"
-                            : "";
-                        return (
-                          <TableRow
-                            key={p.ticker}
-                            data-testid={`portfolio-row-${p.ticker}`}
-                            className={`border-b border-[#1F1F1F] hover:bg-[#111111] cursor-pointer transition-colors ${rowHighlight}`}
-                            onClick={() => p.stock_data && setSelectedStock(p.stock_data)}
-                          >
-                            <TableCell className="py-2.5">
-                              <span className="text-xs text-white font-medium">{p.ticker}</span>
-                            </TableCell>
-                            <TableCell className="text-right text-xs text-[#A1A1AA]">{formatPrice(p.buy_price)}</TableCell>
-                            <TableCell className="text-right text-xs text-white">{formatPrice(p.current_price)}</TableCell>
-                            <TableCell className="text-right text-xs text-[#A1A1AA]">{p.quantity}</TableCell>
-                            <TableCell className="text-right">
-                              <span className={`text-xs font-bold ${p.pnl_pct >= 0 ? "text-[#00E676]" : "text-[#FF3D00]"}`}>
-                                {formatPct(p.pnl_pct)}
-                              </span>
-                              <p className={`text-[10px] ${p.pnl >= 0 ? "text-[#00E676]/60" : "text-[#FF3D00]/60"}`}>
-                                {formatPrice(p.pnl)}
-                              </p>
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <span className={`regime-badge regime-${(p.regime || "neutral").toLowerCase()}`}>{p.regime || "-"}</span>
-                            </TableCell>
-                            <TableCell className="text-center text-xs text-[#A1A1AA]">
-                              {typeof p.rsi === "number" ? p.rsi.toFixed(1) : "-"}
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <div className="flex flex-col items-center gap-0.5">
-                                <span className={`inline-block px-2 py-0.5 text-[10px] font-black uppercase tracking-wider border ${actionColor}`}>
-                                  {p.action || "HOLD"}
-                                </span>
-                                <span className="text-[9px] text-[#555] max-w-[120px] leading-tight">
-                                  {p.action_reason || ""}
-                                </span>
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <button
-                                data-testid={`remove-portfolio-${p.ticker}`}
-                                onClick={(e) => { e.stopPropagation(); handleRemovePortfolio(p.ticker); }}
-                                className="p-1 hover:bg-[#1A1A1A] text-[#555] hover:text-[#FF3D00]"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                )}
-              </TabsContent>
-
-              {/* Alerts Tab */}
-              <TabsContent value="alerts" className="mt-4">
-                <div className="space-y-4">
-                  <div className="bg-[#0C0C0C] border border-[#1F1F1F] p-4">
-                    <p className="text-[10px] tracking-[0.15em] uppercase font-bold text-[#A1A1AA] mb-3">
-                      Email Alerts Configuration
-                    </p>
-                    <div className="flex items-center gap-3 text-xs">
-                      <span className="text-[#A1A1AA]">Alerts will be sent to:</span>
-                      <span className="text-white font-medium">gauravmusale.gm.18@gmail.com</span>
-                    </div>
-                    <p className="text-[10px] text-[#555] mt-2">
-                      Add your Resend API key in backend .env to activate email alerts for regime changes.
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] tracking-[0.15em] uppercase font-bold text-[#A1A1AA] mb-3">
-                      Recent Regime Changes ({regimeChanges.length})
-                    </p>
-                    {regimeChanges.length === 0 ? (
-                      <p className="text-center text-[#555] text-xs py-8">No regime changes detected yet. Run a scan to track changes.</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {regimeChanges.map((rc, i) => (
-                          <div key={i} data-testid={`regime-change-${i}`} className="bg-[#0C0C0C] border border-[#1F1F1F] p-3 flex items-center justify-between">
-                            <div>
-                              <span className="text-xs text-white font-medium">{rc.ticker}</span>
-                              <span className="text-[10px] text-[#555] ml-2">{rc.name}</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className={`regime-badge regime-${(rc.old_regime || "").toLowerCase()}`}>{rc.old_regime}</span>
-                              <span className="text-[#555] text-xs">&rarr;</span>
-                              <span className={`regime-badge regime-${(rc.new_regime || "").toLowerCase()}`}>{rc.new_regime}</span>
-                              <span className="text-[9px] text-[#555] ml-2">{rc.timestamp?.slice(0, 16)}</span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </TabsContent>
-            </Tabs>
-          </>
-        )}
+        <main className="flex-1 overflow-y-auto px-6 py-6">
+          {renderSection()}
+        </main>
       </div>
 
       <DeepDiveSheet
-        stock={selectedStock}
+        stock={selectedStockData}
         onClose={() => setSelectedStock(null)}
         onAddToWatchlist={handleAddToWatchlist}
         onAddToPortfolio={handleAddToPortfolio}
       />
 
-      {/* SEBI Disclaimer Footer */}
-      <footer className="w-full border-t border-[#1F1F1F] bg-[#0C0C0C] py-6 mt-12">
-        <div className="max-w-[1920px] mx-auto px-4 md:px-6 text-center">
-          <p className="text-[#555] text-[10px] sm:text-xs uppercase tracking-wider">
-            <strong>Disclaimer:</strong> This tool is for educational/informational purposes only. Not SEBI registered. Not investment advice. Investments in securities market are subject to market risks.
-          </p>
-        </div>
-      </footer>
+      <Toaster theme="dark" position="top-right" richColors />
     </div>
   );
 }
