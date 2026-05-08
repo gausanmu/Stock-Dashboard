@@ -4,6 +4,7 @@ import {
   Briefcase, 
   Search, 
   Radio,
+  Moon,
   ShieldAlert, 
   LineChart, 
   Settings 
@@ -15,6 +16,7 @@ const NAV_ITEMS = [
   { path: "/portfolio", label: "Portfolio", icon: Briefcase },
   { path: "/scanner", label: "Scanner", icon: Search },
   { path: "/live", label: "Live Intraday", icon: Radio },
+  { path: "/evening", label: "Evening Scanner", icon: Moon },
   { path: "/risk", label: "Risk Dashboard", icon: ShieldAlert },
   { path: "/backtest", label: "Backtester", icon: LineChart },
   { path: "/settings", label: "Settings", icon: Settings },

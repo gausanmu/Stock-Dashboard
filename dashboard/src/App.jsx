@@ -9,6 +9,7 @@ import Risk from './pages/Risk';
 import Backtest from './pages/Backtest';
 import Settings from './pages/Settings';
 import LiveScanner from './pages/LiveScanner';
+import EveningScanner from './pages/EveningScanner';
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
           <Route path="scanner" element={<Scanner />} />
           <Route path="risk" element={<Risk />} />
           <Route path="live" element={<LiveScanner />} />
+          <Route path="evening" element={<EveningScanner />} />
           <Route path="backtest" element={<Backtest />} />
           <Route path="settings" element={<Settings />} />
         </Route>
