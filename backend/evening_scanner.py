@@ -21,21 +21,25 @@ import pytz
 logger = logging.getLogger(__name__)
 IST = pytz.timezone("Asia/Kolkata")
 
-# Pattern weights
+# Pattern weights — calibrated from backtest win rates
+# Volume Accumulation: 55.6% WR, Compression: 50%, Retest: 42%, EMA: 43%, Exhaustion: 37%
 PATTERN_WEIGHTS = {
-    "compression_breakout": 0.20,
-    "volume_accumulation": 0.20,
-    "seller_exhaustion": 0.15,
-    "breakout_retest": 0.20,
+    "volume_accumulation": 0.40,
+    "compression_breakout": 0.30,
+    "breakout_retest": 0.15,
     "ema_power": 0.10,
-    "sector_rotation": 0.15,
+    "seller_exhaustion": 0.05,
 }
 
-# Conviction thresholds
-ROCKET_THRESHOLD = 0.65    # 3+ patterns firing
-STRONG_THRESHOLD = 0.45    # 2 patterns firing
-WATCH_THRESHOLD = 0.30     # 1 strong pattern
-MIN_RR_RATIO = 2.0         # Minimum risk:reward
+# Conviction thresholds — tightened to reduce weak signals
+ROCKET_THRESHOLD = 0.55
+STRONG_THRESHOLD = 0.40
+WATCH_THRESHOLD = 0.32
+MIN_RR_RATIO = 2.0
+
+# Pre-filters
+MIN_AVG_VOLUME = 100_000    # Minimum daily volume (shares)
+MIN_ATR_PCT = 0.015         # Minimum ATR as % of price (1.5%)
 
 
 # ── Helper functions ─────────────────────────────────────────────
@@ -81,6 +85,35 @@ def _atr(h, l, c, period=14):
         tr = max(h[i] - l[i], abs(h[i] - c[i - 1]), abs(l[i] - c[i - 1]))
         tr_list.append(tr)
     return sum(tr_list[-period:]) / period if tr_list else 1.0
+
+
+def _adx(h, l, c, period=14):
+    """Average Directional Index — trend strength. >25 = strong trend."""
+    if len(c) < period * 2 + 1:
+        return 20.0  # default neutral
+    plus_dm, minus_dm, tr_list = [], [], []
+    for i in range(1, len(c)):
+        up = h[i] - h[i-1]
+        down = l[i-1] - l[i]
+        plus_dm.append(max(up, 0) if up > down else 0)
+        minus_dm.append(max(down, 0) if down > up else 0)
+        tr_list.append(max(h[i] - l[i], abs(h[i] - c[i-1]), abs(l[i] - c[i-1])))
+    # Smoothed averages
+    atr_s = sum(tr_list[:period]) / period
+    pdm_s = sum(plus_dm[:period]) / period
+    mdm_s = sum(minus_dm[:period]) / period
+    dx_list = []
+    for i in range(period, len(tr_list)):
+        atr_s = (atr_s * (period - 1) + tr_list[i]) / period
+        pdm_s = (pdm_s * (period - 1) + plus_dm[i]) / period
+        mdm_s = (mdm_s * (period - 1) + minus_dm[i]) / period
+        pdi = (pdm_s / atr_s * 100) if atr_s > 0 else 0
+        mdi = (mdm_s / atr_s * 100) if atr_s > 0 else 0
+        dx = abs(pdi - mdi) / (pdi + mdi) * 100 if (pdi + mdi) > 0 else 0
+        dx_list.append(dx)
+    if not dx_list:
+        return 20.0
+    return sum(dx_list[-period:]) / min(len(dx_list), period)
 
 
 def _bollinger_width(prices, period=20):
@@ -483,8 +516,8 @@ def _calculate_entry_exit(close, high, low, atr_val):
 
 
 # ── Position Sizing ──────────────────────────────────────────────
-def _position_size(entry, stop_loss, account_size=80000, max_risk_pct=2.0):
-    """Kelly-inspired position sizing. Risk max 2% of account per trade."""
+def _position_size(entry, stop_loss, account_size=80000, max_risk_pct=1.0):
+    """Conservative Kelly: risk max 1% of account per trade (25% Kelly)."""
     risk_per_share = entry - stop_loss
     if risk_per_share <= 0:
         return {"quantity": 0, "capital_required": 0, "risk_amount": 0}
@@ -492,6 +525,12 @@ def _position_size(entry, stop_loss, account_size=80000, max_risk_pct=2.0):
     max_risk_amount = account_size * (max_risk_pct / 100)
     quantity = int(max_risk_amount / risk_per_share)
     capital = round(quantity * entry, 2)
+
+    # Cap at 20% of account per position
+    max_capital = account_size * 0.20
+    if capital > max_capital:
+        quantity = int(max_capital / entry)
+        capital = round(quantity * entry, 2)
 
     return {
         "quantity": max(quantity, 1),
@@ -504,7 +543,7 @@ def _position_size(entry, stop_loss, account_size=80000, max_risk_pct=2.0):
 # ── Main Scanner ─────────────────────────────────────────────────
 def scan_single_stock(ticker_symbol, sector_performance=None):
     """
-    Run all 6 evening patterns on a single stock.
+    Run evening patterns on a single stock with pre-filters.
     Returns result dict if conviction >= WATCH_THRESHOLD, else None.
     """
     try:
@@ -513,7 +552,7 @@ def scan_single_stock(ticker_symbol, sector_performance=None):
         info = stock.info or {}
         hist = stock.history(period="6mo")
 
-        if hist.empty or len(hist) < 30:
+        if hist.empty or len(hist) < 55:
             return None
 
         close = hist["Close"].tolist()
@@ -525,26 +564,46 @@ def scan_single_stock(ticker_symbol, sector_performance=None):
         if price <= 0:
             return None
 
+        # ── PRE-FILTERS (skip garbage early) ──────────────────────
+        # 1. Liquidity filter: avg volume must be > 100k shares
+        avg_vol_20 = sum(vol[-20:]) / max(len(vol[-20:]), 1)
+        if avg_vol_20 < MIN_AVG_VOLUME:
+            return None
+
+        # 2. Trend filter: only trade stocks above SMA50 (with trend)
+        sma50 = _sma(close, 50)
+        if price < sma50:
+            return None  # Don't catch falling knives
+
+        # 3. Volatility filter: ATR% must be >= 1.5% (enough movement)
+        atr_val = _atr(high, low, close)
+        atr_pct = atr_val / price if price > 0 else 0
+        if atr_pct < MIN_ATR_PCT:
+            return None  # Too dead to profit from
+
+        # 4. ADX filter: trend must be strong enough (ADX > 18)
+        adx_val = _adx(high, low, close)
+        if adx_val < 18:
+            return None  # Choppy, patterns won't work
+
         sector = info.get("sector", "General")
         change_pct = ((close[-1] - close[-2]) / close[-2] * 100) if len(close) > 1 and close[-2] else 0
-        atr_val = _atr(high, low, close)
 
-        # Run all 6 patterns
+        # ── Run patterns (only the proven ones get real weight) ────
         p1_score, p1_reason = _detect_compression_breakout(close, high, low, vol)
         p2_score, p2_reason = _detect_volume_accumulation(close, vol, high, low)
         p3_score, p3_reason = _detect_seller_exhaustion(close, high, low, vol)
         p4_score, p4_reason = _detect_breakout_retest(close, high, low)
         p5_score, p5_reason = _detect_ema_power(close)
-        p6_score, p6_reason = _detect_sector_rotation(change_pct, sector, sector_performance or {})
 
-        # Weighted conviction score
+        # Weighted conviction — NO sector rotation (unused, 0 signals)
+        # Weights from backtest: Vol Accum (40%), Compression (30%), Retest (15%), EMA (10%), Exhaustion (5%)
         conviction = (
-            p1_score * PATTERN_WEIGHTS["compression_breakout"]
-            + p2_score * PATTERN_WEIGHTS["volume_accumulation"]
-            + p3_score * PATTERN_WEIGHTS["seller_exhaustion"]
+            p2_score * PATTERN_WEIGHTS["volume_accumulation"]
+            + p1_score * PATTERN_WEIGHTS["compression_breakout"]
             + p4_score * PATTERN_WEIGHTS["breakout_retest"]
             + p5_score * PATTERN_WEIGHTS["ema_power"]
-            + p6_score * PATTERN_WEIGHTS["sector_rotation"]
+            + p3_score * PATTERN_WEIGHTS["seller_exhaustion"]
         )
 
         if conviction < WATCH_THRESHOLD:
@@ -559,13 +618,11 @@ def scan_single_stock(ticker_symbol, sector_performance=None):
             tier = "WATCH"
 
         # Count patterns firing (score > 0.4)
-        patterns_firing = sum(1 for s in [p1_score, p2_score, p3_score, p4_score, p5_score, p6_score] if s >= 0.4)
+        patterns_firing = sum(1 for s in [p1_score, p2_score, p3_score, p4_score, p5_score] if s >= 0.4)
 
         # Calculate entry/exit
         levels = _calculate_entry_exit(close, high, low, atr_val)
         if not levels or levels["risk_reward"] < MIN_RR_RATIO:
-            # If R:R too low, try tighter stop
-            # If still bad, skip
             if levels and levels["risk_reward"] < 1.5:
                 return None
 
