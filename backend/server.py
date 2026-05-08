@@ -485,6 +485,45 @@ async def update_portfolio(ticker: str, item: PortfolioItem):
     return {"status": "updated"}
 
 
+@app.get("/api/portfolio/correlation-matrix")
+async def get_correlation_matrix():
+    portfolio_tickers = list(_portfolio_db().keys())
+    if len(portfolio_tickers) < 2:
+        return {"matrix": [], "tickers": portfolio_tickers, "message": "Need at least 2 stocks"}
+    
+    # We can reuse RiskManager to compute pairwise
+    # Or fetch hist for all and compute. 
+    # For simplicity, we just use risk_mgr.check_correlation
+    matrix = []
+    import pandas as pd
+    import yfinance as yf
+    
+    try:
+        # Download 3mo history for all portfolio stocks
+        symbols = [(t if t.endswith(".NS") else f"{t}.NS") for t in portfolio_tickers]
+        data = yf.download(symbols, period="3mo")['Close']
+        if isinstance(data, pd.Series): # only 1 valid
+            return {"matrix": [], "tickers": portfolio_tickers}
+            
+        corr = data.corr()
+        
+        for i, t1 in enumerate(portfolio_tickers):
+            row = []
+            s1 = t1 if t1.endswith(".NS") else f"{t1}.NS"
+            for t2 in portfolio_tickers:
+                s2 = t2 if t2.endswith(".NS") else f"{t2}.NS"
+                if s1 in corr.columns and s2 in corr.columns:
+                    val = corr.loc[s1, s2]
+                    row.append(round(val, 2) if pd.notna(val) else 0)
+                else:
+                    row.append(0)
+            matrix.append(row)
+            
+        return {"matrix": matrix, "tickers": portfolio_tickers}
+    except Exception as e:
+        logger.error(f"Correlation matrix error: {e}")
+        return {"matrix": [], "tickers": portfolio_tickers, "error": str(e)}
+
 @app.delete("/api/portfolio/{ticker}")
 async def remove_from_portfolio(ticker: str):
     t = ticker.upper()
