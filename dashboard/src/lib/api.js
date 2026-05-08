@@ -1,7 +1,7 @@
 import axios from "axios";
 
-// Using Vite's import.meta.env
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || (import.meta.env.DEV ? "http://127.0.0.1:8000" : "");
+// Using Vite's proxy instead of hardcoded localhost
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 const API = BACKEND_URL ? `${BACKEND_URL}/api` : "/api";
 
 export const api = {
@@ -34,7 +34,15 @@ export const api = {
   updatePortfolio: (ticker, data) => axios.put(`${API}/portfolio/${ticker}`, data),
   removeFromPortfolio: (ticker) => axios.delete(`${API}/portfolio/${ticker}`),
   getPortfolioRecommendation: (ticker) => axios.get(`${API}/portfolio/${ticker}/recommendation`),
-  getCorrelationMatrix: () => axios.get(`${API}/portfolio/correlation-matrix`), // Future endpoint
+  getCorrelationMatrix: () => axios.get(`${API}/portfolio/correlation-matrix`),
+
+  // Live Intraday
+  getLiveMarketStatus: () => axios.get(`${API}/live/market-status`),
+  getLiveQuotes: (index = "NIFTY 50") => axios.get(`${API}/live/quotes`, { params: { index } }),
+  getLiveGainers: () => axios.get(`${API}/live/gainers`),
+  getLiveBulls: (index = "NIFTY 50") => axios.get(`${API}/live/bulls`, { params: { index } }),
+  // SSE stream URL (used with EventSource, not axios)
+  getLiveScanURL: (index = "NIFTY 50") => `${API}/live/scan?index=${encodeURIComponent(index)}`,
 
   // News & Sentiment
   getStockNews: (ticker, refresh = false) => axios.get(`${API}/news/${ticker}`, { params: { refresh } }),

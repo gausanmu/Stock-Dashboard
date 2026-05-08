@@ -1,4 +1,5 @@
 from fastapi import FastAPI, APIRouter, Request, HTTPException, Query, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import logging
@@ -24,6 +25,8 @@ import cache
 import db
 import scan_worker
 from scan_worker import refresh_universe, get_latest_scan, scan_state
+import nse_live
+import intraday_scanner
 
 # Logging
 logging.basicConfig(level=logging.INFO)
@@ -197,6 +200,105 @@ async def get_scan_results(universe: str = "nifty50",
         "timestamp": latest.get("timestamp"),
         "status": latest.get("status"),
         "results": results,
+    }
+
+
+# ── LIVE INTRADAY BULL-RUN endpoints ─────────────────────────────
+@app.get("/api/live/market-status")
+async def live_market_status():
+    """Check if NSE market is currently open and get index snapshot."""
+    status = nse_live.fetch_market_status()
+    status["is_open"] = nse_live.is_market_open()
+    return status
+
+
+@app.get("/api/live/quotes")
+async def live_quotes(index: str = "NIFTY 50"):
+    """Fetch bulk live quotes for an index from NSE. One call = all stocks."""
+    quotes = nse_live.fetch_index_quotes(index)
+    return {"index": index, "count": len(quotes), "quotes": quotes}
+
+
+@app.get("/api/live/gainers")
+async def live_top_gainers():
+    """Top gainers from NSE live analysis."""
+    return nse_live.fetch_top_gainers()
+
+
+@app.get("/api/live/scan")
+async def live_bull_scan(index: str = "NIFTY 50"):
+    """
+    Stream intraday bull-run detections via Server-Sent Events.
+    Fetches live NSE data for the index, runs bull-detection on each stock,
+    and streams results as they are found (not after scanning all).
+    
+    Connect via EventSource in the browser.
+    """
+    # Fetch all stocks for this index in one bulk NSE call
+    stocks = nse_live.fetch_index_quotes(index)
+    if not stocks:
+        # Fallback: if NSE is blocked, try fetching from yfinance
+        import json
+        async def error_stream():
+            yield f"data: {json.dumps({'type': 'error', 'message': 'Could not fetch live data from NSE. Market may be closed or NSE is rate-limiting.'})}\n\n"
+        return StreamingResponse(error_stream(), media_type="text/event-stream")
+
+    # Build avg_volumes dict from yfinance cache for volume comparison
+    avg_volumes = {}
+    for s in stocks:
+        sym = s.get("symbol", "")
+        cached = cache.get_ticker(sym)
+        if cached and "vol_ratio" in cached:
+            # Reverse-engineer avg volume from vol_ratio and last volume
+            last_vol = cached.get("volume", 0)
+            vr = cached.get("vol_ratio", 1)
+            if vr > 0:
+                avg_volumes[sym] = last_vol / vr
+
+    return StreamingResponse(
+        intraday_scanner.stream_bull_scan(stocks, avg_volumes),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+@app.get("/api/live/bulls")
+async def live_bulls_snapshot(index: str = "NIFTY 50"):
+    """
+    Non-streaming version: returns all detected bulls at once.
+    Use this if SSE is not convenient.
+    """
+    stocks = nse_live.fetch_index_quotes(index)
+    if not stocks:
+        return {"bulls": [], "error": "Could not fetch live data"}
+
+    avg_volumes = {}
+    for s in stocks:
+        sym = s.get("symbol", "")
+        cached = cache.get_ticker(sym)
+        if cached and "vol_ratio" in cached:
+            last_vol = cached.get("volume", 0)
+            vr = cached.get("vol_ratio", 1)
+            if vr > 0:
+                avg_volumes[sym] = last_vol / vr
+
+    bulls = []
+    for stock in stocks:
+        result = intraday_scanner.analyze_bull_run(stock, avg_volumes.get(stock.get("symbol", ""), 0))
+        if result:
+            bulls.append(result)
+
+    bulls.sort(key=lambda x: x["bull_score"], reverse=True)
+    return {
+        "index": index,
+        "total_scanned": len(stocks),
+        "bulls_found": len(bulls),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "bulls": bulls,
     }
 
 

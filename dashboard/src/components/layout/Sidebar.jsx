@@ -3,6 +3,7 @@ import {
   LayoutDashboard, 
   Briefcase, 
   Search, 
+  Radio,
   ShieldAlert, 
   LineChart, 
   Settings 
@@ -13,6 +14,7 @@ const NAV_ITEMS = [
   { path: "/overview", label: "Overview", icon: LayoutDashboard },
   { path: "/portfolio", label: "Portfolio", icon: Briefcase },
   { path: "/scanner", label: "Scanner", icon: Search },
+  { path: "/live", label: "Live Intraday", icon: Radio },
   { path: "/risk", label: "Risk Dashboard", icon: ShieldAlert },
   { path: "/backtest", label: "Backtester", icon: LineChart },
   { path: "/settings", label: "Settings", icon: Settings },

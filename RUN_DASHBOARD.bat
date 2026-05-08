@@ -1,16 +1,20 @@
 @echo off
-title NSE Quant Engine - Local Launcher
+title NSE Quant Engine v2 - Local Launcher
 color 0A
 
 echo ============================================
-echo   NSE Quant Engine - Starting Locally
+echo   NSE Quant Engine v2 - Starting Locally
 echo ============================================
 echo.
 
-:: Check Python
-where python >nul 2>&1
+:: Get the directory this script lives in
+set "PROJECT_DIR=%~dp0"
+
+:: ── Check Python via py launcher ─────────────────────────────
+where py >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERROR] Python not found. Install Python 3.10+ and add to PATH.
+    echo [ERROR] Python launcher (py) not found.
+    echo         Install Python 3.10+ from python.org and ensure "py launcher" is checked.
     pause
     exit /b 1
 )
@@ -23,30 +27,33 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-:: Get the directory this script lives in
-set "PROJECT_DIR=%~dp0"
-
 :: ── Backend Setup ──────────────────────────────────────────
-echo [1/4] Installing backend dependencies...
+echo [1/4] Setting up backend...
 cd /d "%PROJECT_DIR%backend"
 if not exist "venv" (
     echo       Creating virtual environment...
-    python -m venv venv
+    py -3 -m venv venv
 )
 call venv\Scripts\activate.bat
 
-:: Use the lightweight local requirements (avoids C-extension issues on Windows)
-pip install -q -r requirements-local.txt 2>nul
-if %errorlevel% neq 0 (
-    echo [WARN] Some packages failed. Trying full requirements...
-    pip install -q -r requirements.txt 2>nul
+:: Install dependencies if needed
+if not exist "venv\Lib\site-packages\fastapi" (
+    echo       Installing Python dependencies...
+    pip install -q -r requirements-local.txt 2>nul
+    if %errorlevel% neq 0 (
+        echo [WARN] Some packages failed. Trying full requirements...
+        pip install -q -r requirements.txt 2>nul
+    )
+) else (
+    echo       Dependencies already installed, skipping.
 )
 
-:: ── Frontend Setup ─────────────────────────────────────────
-echo [2/4] Installing frontend dependencies...
-cd /d "%PROJECT_DIR%frontend"
+:: ── Dashboard Setup ─────────────────────────────────────────
+echo [2/4] Setting up dashboard...
+cd /d "%PROJECT_DIR%dashboard"
 if not exist "node_modules" (
-    call npm install --legacy-peer-deps
+    echo       Installing npm dependencies (first run only)...
+    call npm install
 ) else (
     echo       node_modules exists, skipping install.
 )
@@ -57,15 +64,15 @@ cd /d "%PROJECT_DIR%backend"
 start "Backend - Uvicorn" cmd /k "call venv\Scripts\activate.bat && python -m uvicorn server:app --host 127.0.0.1 --port 8000 --reload"
 
 :: Give backend a moment to boot
-timeout /t 3 /nobreak >nul
+timeout /t 4 /nobreak >nul
 
-:: ── Start Frontend ─────────────────────────────────────────
-echo [4/4] Starting frontend on http://localhost:3000 ...
-cd /d "%PROJECT_DIR%frontend"
-start "Frontend - React" cmd /k "set BROWSER=none&& npm start"
+:: ── Start Dashboard ────────────────────────────────────────
+echo [4/4] Starting dashboard on http://localhost:3000 ...
+cd /d "%PROJECT_DIR%dashboard"
+start "Dashboard - Vite" cmd /k "npm run dev"
 
-:: Wait for frontend dev server to be ready
-timeout /t 8 /nobreak >nul
+:: Wait for Vite dev server to be ready
+timeout /t 5 /nobreak >nul
 
 :: ── Open Browser ───────────────────────────────────────────
 echo.
