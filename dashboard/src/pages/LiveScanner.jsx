@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { api } from "@/lib/api";
 import { formatCurrency, formatPct } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { Zap, Radio, TrendingUp, Volume2, Target, Clock, AlertTriangle, RefreshCw } from "lucide-react";
+import { Zap, Radio, TrendingUp, Volume2, Target, Clock, AlertTriangle, RefreshCw, ArrowUpDown, Shield, Crosshair } from "lucide-react";
 
 const INDEX_OPTIONS = [
   { value: "ALL_NSE", label: "Entire Market (500+ stocks)" },
@@ -19,10 +19,25 @@ const INDEX_OPTIONS = [
   { value: "SECURITIES IN F&O", label: "All F&O Stocks" },
 ];
 
+const SORT_OPTIONS = [
+  { value: "bull_score", label: "Bull Score" },
+  { value: "change_pct", label: "% Change" },
+  { value: "volume", label: "Volume" },
+  { value: "risk_reward", label: "Risk:Reward" },
+  { value: "ltp", label: "Price" },
+];
+
 const TAG_COLORS = {
   ROCKET: "bg-accent-red text-white",
   STRONG_BUY: "bg-accent-green text-bg-primary",
   BUILDING: "bg-accent-amber text-bg-primary",
+};
+
+const ACTION_COLORS = {
+  ENTER: "text-accent-green",
+  WATCH: "text-accent-blue",
+  LATE_ENTRY: "text-accent-amber",
+  RISKY: "text-accent-red",
 };
 
 function SignalBar({ signal }) {
@@ -40,13 +55,64 @@ function SignalBar({ signal }) {
   );
 }
 
+function ExitPanel({ exits }) {
+  if (!exits) return null;
+  return (
+    <div className="mt-3 pt-3 border-t border-border">
+      <div className="flex items-center gap-2 mb-3">
+        <Crosshair className="w-3.5 h-3.5 text-accent-blue" />
+        <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Exit Strategy</h4>
+        <span className={cn("ml-auto text-xs font-bold", ACTION_COLORS[exits.action])}>
+          {exits.action === "ENTER" && "✓ "}{exits.action}
+        </span>
+      </div>
+      <p className="text-[10px] text-text-muted mb-3">{exits.action_reason}</p>
+
+      <div className="grid grid-cols-3 gap-3 text-xs">
+        <div className="bg-accent-red/10 border border-accent-red/20 rounded-md p-2">
+          <div className="flex items-center gap-1 text-accent-red mb-1">
+            <Shield className="w-3 h-3" />
+            <span className="font-semibold">Stop Loss</span>
+          </div>
+          <p className="mono-num font-bold">{formatCurrency(exits.stop_loss)}</p>
+          <p className="mono-num text-[10px] text-accent-red">-{exits.stop_loss_pct}%</p>
+          {exits.trailing_active && <span className="text-[9px] text-accent-amber">⚡ trailing active</span>}
+        </div>
+        <div className="bg-accent-green/10 border border-accent-green/20 rounded-md p-2">
+          <div className="flex items-center gap-1 text-accent-green mb-1">
+            <Target className="w-3 h-3" />
+            <span className="font-semibold">Target 1</span>
+          </div>
+          <p className="mono-num font-bold">{formatCurrency(exits.target_1)}</p>
+          <p className="mono-num text-[10px] text-accent-green">+{exits.target_1_pct}%</p>
+        </div>
+        <div className="bg-accent-blue/10 border border-accent-blue/20 rounded-md p-2">
+          <div className="flex items-center gap-1 text-accent-blue mb-1">
+            <Target className="w-3 h-3" />
+            <span className="font-semibold">Target 2</span>
+          </div>
+          <p className="mono-num font-bold">{formatCurrency(exits.target_2)}</p>
+          <p className="mono-num text-[10px] text-accent-blue">+{exits.target_2_pct}%</p>
+        </div>
+      </div>
+
+      <div className="mt-2 flex items-center gap-2 text-xs">
+        <span className="text-text-secondary">R:R Ratio:</span>
+        <span className={cn("font-bold mono-num", exits.risk_reward >= 2 ? "text-accent-green" : exits.risk_reward >= 1.5 ? "text-accent-amber" : "text-accent-red")}>
+          {exits.risk_reward}:1
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function BullCard({ bull, index }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
     <div
       className={cn("bg-bg-card border border-border rounded-lg overflow-hidden animate-slide-up transition-all", expanded && "ring-1 ring-accent-blue/30")}
-      style={{ animationDelay: `${index * 80}ms` }}
+      style={{ animationDelay: `${Math.min(index * 60, 600)}ms` }}
     >
       <div className="p-4 cursor-pointer" onClick={() => setExpanded(!expanded)}>
         <div className="flex justify-between items-start mb-2">
@@ -68,15 +134,28 @@ function BullCard({ bull, index }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-4 text-xs text-text-secondary">
+        <div className="flex items-center gap-4 text-xs text-text-secondary flex-wrap">
           <span className="flex items-center gap-1">
             <Target className="w-3 h-3" />
-            Bull Score: <strong className="text-accent-blue mono-num">{(bull.bull_score * 100).toFixed(0)}/100</strong>
+            Score: <strong className="text-accent-blue mono-num">{(bull.bull_score * 100).toFixed(0)}</strong>
           </span>
           <span className="flex items-center gap-1">
             <Volume2 className="w-3 h-3" />
-            Vol: <strong className="mono-num">{(bull.volume / 100000).toFixed(1)}L</strong>
+            {(bull.volume / 100000).toFixed(1)}L
           </span>
+          {bull.exits && (
+            <>
+              <span className={cn("flex items-center gap-1 font-medium", ACTION_COLORS[bull.exits.action])}>
+                {bull.exits.action}
+              </span>
+              <span className="flex items-center gap-1">
+                R:R <strong className={cn("mono-num", bull.exits.risk_reward >= 2 ? "text-accent-green" : "text-accent-amber")}>{bull.exits.risk_reward}:1</strong>
+              </span>
+              <span className="flex items-center gap-1 text-accent-red">
+                SL: <strong className="mono-num">{formatCurrency(bull.exits.stop_loss)}</strong>
+              </span>
+            </>
+          )}
           <span className="flex items-center gap-1">
             <Clock className="w-3 h-3" />
             {bull.detected_at}
@@ -93,6 +172,9 @@ function BullCard({ bull, index }) {
               <p className="text-[10px] text-text-muted ml-[7.5rem] mt-0.5">{sig.reason}</p>
             </div>
           ))}
+
+          <ExitPanel exits={bull.exits} />
+
           <div className="grid grid-cols-4 gap-3 mt-3 pt-3 border-t border-border text-xs">
             <div>
               <span className="text-text-secondary block">Open</span>
@@ -120,7 +202,8 @@ function BullCard({ bull, index }) {
 export default function LiveScanner() {
   const [bulls, setBulls] = useState([]);
   const [scanning, setScanning] = useState(false);
-  const [index, setIndex] = useState("NIFTY 50");
+  const [index, setIndex] = useState("ALL_NSE");
+  const [sortBy, setSortBy] = useState("bull_score");
   const [progress, setProgress] = useState({ current: 0, total: 0, found: 0 });
   const [marketStatus, setMarketStatus] = useState(null);
   const [lastScan, setLastScan] = useState(null);
@@ -133,6 +216,18 @@ export default function LiveScanner() {
       .then(res => setMarketStatus(res.data))
       .catch(() => setMarketStatus({ is_open: false, status: "unknown" }));
   }, []);
+
+  // Sort bulls whenever sortBy changes
+  const sortedBulls = [...bulls].sort((a, b) => {
+    switch (sortBy) {
+      case "change_pct": return b.change_pct - a.change_pct;
+      case "volume": return b.volume - a.volume;
+      case "risk_reward": return (b.exits?.risk_reward || 0) - (a.exits?.risk_reward || 0);
+      case "ltp": return b.ltp - a.ltp;
+      case "bull_score":
+      default: return b.bull_score - a.bull_score;
+    }
+  });
 
   const startStreamingScan = useCallback(() => {
     if (scanning) return;
@@ -154,11 +249,7 @@ export default function LiveScanner() {
         if (msg.type === "scan_start") {
           setProgress(prev => ({ ...prev, total: msg.total }));
         } else if (msg.type === "bull_detected") {
-          setBulls(prev => {
-            const updated = [...prev, msg.data];
-            updated.sort((a, b) => b.bull_score - a.bull_score);
-            return updated;
-          });
+          setBulls(prev => [...prev, msg.data]);
           setProgress(prev => ({ ...prev, current: msg.progress, found: prev.found + 1 }));
         } else if (msg.type === "progress") {
           setProgress(prev => ({ ...prev, current: msg.progress, found: msg.found }));
@@ -213,7 +304,7 @@ export default function LiveScanner() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           {marketStatus && (
             <div className={cn("flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border", marketStatus.is_open ? "border-accent-green/30 text-accent-green bg-accent-green/5" : "border-accent-amber/30 text-accent-amber bg-accent-amber/5")}>
               <div className={cn("w-2 h-2 rounded-full", marketStatus.is_open ? "bg-accent-green animate-pulse" : "bg-accent-amber")} />
@@ -249,7 +340,7 @@ export default function LiveScanner() {
           <div className="flex justify-between text-xs text-text-secondary mb-2">
             <span className="flex items-center gap-1">
               <Radio className="w-3 h-3 text-accent-red animate-pulse" />
-              Scanning {index} live...
+              Scanning {index === "ALL_NSE" ? "entire NSE market" : index} live...
             </span>
             <span>
               {progress.current}/{progress.total} checked | <strong className="text-accent-green">{progress.found} bulls found</strong>
@@ -272,17 +363,30 @@ export default function LiveScanner() {
       )}
 
       {/* Results */}
-      {bulls.length > 0 ? (
+      {sortedBulls.length > 0 ? (
         <div>
-          <div className="flex justify-between items-center mb-4">
+          <div className="flex justify-between items-center mb-4 flex-wrap gap-3">
             <h2 className="text-lg font-semibold flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-accent-green" />
-              {bulls.length} Bull{bulls.length > 1 ? "s" : ""} Detected
+              {sortedBulls.length} Bull{sortedBulls.length > 1 ? "s" : ""} Detected
+              {lastScan && <span className="text-xs text-text-muted font-normal ml-2">at {lastScan}</span>}
             </h2>
-            {lastScan && <span className="text-xs text-text-muted">Last scan: {lastScan}</span>}
+            <div className="flex items-center gap-2">
+              <ArrowUpDown className="w-4 h-4 text-text-secondary" />
+              <span className="text-xs text-text-secondary">Sort:</span>
+              {SORT_OPTIONS.map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => setSortBy(opt.value)}
+                  className={cn("text-xs px-2.5 py-1 rounded-md border transition-colors", sortBy === opt.value ? "bg-accent-blue/20 border-accent-blue/40 text-accent-blue font-medium" : "border-border text-text-secondary hover:border-text-muted")}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {bulls.map((bull, i) => (
+            {sortedBulls.map((bull, i) => (
               <BullCard key={bull.symbol} bull={bull} index={i} />
             ))}
           </div>
@@ -292,8 +396,8 @@ export default function LiveScanner() {
           <Zap className="w-16 h-16 text-text-muted mb-4" />
           <h2 className="text-xl font-semibold text-text-secondary mb-2">No Scan Running</h2>
           <p className="text-sm text-text-muted max-w-md">
-            Click "Scan Now" to fetch live data from NSE and detect intraday bull runs.
-            Results appear instantly as each stock is analyzed.
+            Select "Entire Market" to scan 500+ NSE stocks, or pick a specific index.
+            Click "Scan Now" — results appear live as each stock is analyzed.
           </p>
         </div>
       ) : null}

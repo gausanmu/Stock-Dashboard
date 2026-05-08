@@ -147,6 +147,95 @@ def _score_yearly_strength(ltp: float, year_high: float) -> tuple:
         return 0.1, f"{pct_from_high:.1f}% below 52w high"
 
 
+def _calculate_exit_levels(ltp, open_price, high, low, prev_close, year_high):
+    """
+    Calculate stop loss, targets, and risk:reward for an intraday bull.
+
+    Logic:
+    ─────
+    STOP LOSS: The higher of today's low or 1.5% below current price.
+    - Today's low = the level where buyers already stepped in once.
+    - 1.5% trailing = max acceptable loss on an intraday momentum trade.
+
+    TARGET 1 (Conservative): Range extension.
+    - Today's range (high - low) projected above current price.
+    - If stock moved ₹50 today, expect another ₹25-50 move in same direction.
+
+    TARGET 2 (Aggressive): 52-week high.
+    - For stocks already near 52w high, use 5% above current price.
+    - Ultimate resistance level — book profits here.
+
+    TRAILING STOP: If stock is already up 3%+ from open, tighten stop to
+    1% below current. Protects gains on fast runners.
+
+    RISK:REWARD: Calculated as (Target1 - LTP) / (LTP - StopLoss).
+    - Below 1.5 = not worth the risk, skip.
+    - 2.0+ = good trade.
+    - 3.0+ = excellent setup.
+    """
+    # Stop loss
+    stop_at_low = low if low > 0 else ltp * 0.985
+    stop_pct_trail = ltp * 0.985  # 1.5% below current
+    stop_loss = max(stop_at_low, stop_pct_trail)
+
+    # If already up big, tighten trailing stop
+    if open_price > 0:
+        gain_from_open = ((ltp - open_price) / open_price) * 100
+        if gain_from_open >= 3.0:
+            # Tighten to 1% below current for fast movers
+            tight_stop = ltp * 0.99
+            stop_loss = max(stop_loss, tight_stop)
+    else:
+        gain_from_open = 0
+
+    # Target 1: Range extension
+    day_range = high - low if (high > 0 and low > 0) else ltp * 0.02
+    target_1 = ltp + (day_range * 0.5)  # Half-range extension (conservative)
+
+    # Target 2: 52-week high or 5% above current if already near it
+    if year_high > 0 and year_high > ltp * 1.02:
+        target_2 = year_high
+    else:
+        target_2 = ltp * 1.05  # 5% above current
+
+    # Risk:Reward
+    risk = ltp - stop_loss
+    reward = target_1 - ltp
+    rr_ratio = round(reward / risk, 2) if risk > 0 else 0
+
+    # Stop loss and target as percentages from LTP
+    sl_pct = round(((ltp - stop_loss) / ltp) * 100, 2) if ltp > 0 else 0
+    t1_pct = round(((target_1 - ltp) / ltp) * 100, 2) if ltp > 0 else 0
+    t2_pct = round(((target_2 - ltp) / ltp) * 100, 2) if ltp > 0 else 0
+
+    # Action advice
+    if rr_ratio >= 2.0:
+        action = "ENTER"
+        reason = f"R:R {rr_ratio}:1 — favorable setup"
+    elif rr_ratio >= 1.5:
+        action = "WATCH"
+        reason = f"R:R {rr_ratio}:1 — decent but wait for dip to improve entry"
+    elif gain_from_open >= 5:
+        action = "LATE_ENTRY"
+        reason = f"Already up {gain_from_open:.1f}% — most of the move is done, trail tight"
+    else:
+        action = "RISKY"
+        reason = f"R:R {rr_ratio}:1 — risk too high relative to upside"
+
+    return {
+        "stop_loss": round(stop_loss, 2),
+        "stop_loss_pct": sl_pct,
+        "target_1": round(target_1, 2),
+        "target_1_pct": t1_pct,
+        "target_2": round(target_2, 2),
+        "target_2_pct": t2_pct,
+        "risk_reward": rr_ratio,
+        "action": action,
+        "action_reason": reason,
+        "trailing_active": gain_from_open >= 3.0,
+    }
+
+
 def analyze_bull_run(stock: dict, avg_volume: float = 0) -> Optional[dict]:
     """
     Run all 5 bull-detection signals on a single stock.
@@ -191,6 +280,9 @@ def analyze_bull_run(stock: dict, avg_volume: float = 0) -> Optional[dict]:
     else:
         tag = "BUILDING"
 
+    # Calculate exit levels
+    exits = _calculate_exit_levels(ltp, open_price, high, low, prev_close, year_high)
+
     # Build signal breakdown for the UI
     signals = [
         {"name": "Momentum",       "score": round(mom_score, 2),   "reason": mom_reason,   "weight": WEIGHTS["momentum"]},
@@ -215,6 +307,7 @@ def analyze_bull_run(stock: dict, avg_volume: float = 0) -> Optional[dict]:
         "bull_score": round(bull_score, 3),
         "bull_tag": tag,
         "signals": signals,
+        "exits": exits,
         "detected_at": datetime.now(IST).strftime("%H:%M:%S"),
     }
 
