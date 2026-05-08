@@ -53,4 +53,11 @@ export const api = {
   getRegimeChanges: (limit = 50) =>
     axios.get(`${API}/alerts/regime-changes`, { params: { limit } }),
   getAdminHealth: () => axios.get(`${API}/admin/health`),
+
+  // Evening Scanner
+  getEveningResults: (params = {}) =>
+    axios.get(`${API}/evening/results`, { params }),
+  getEveningScanStatus: () => axios.get(`${API}/evening/status`),
+  triggerEveningScan: (universe = "evening_default") =>
+    axios.post(`${API}/evening/scan`, null, { params: { universe } }),
 };

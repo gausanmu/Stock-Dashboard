@@ -1,10 +1,11 @@
-import { LayoutDashboard, TrendingUp, Activity, Zap, Briefcase, Eye, BarChart3, Bell, Newspaper, Settings } from "lucide-react";
+import { LayoutDashboard, TrendingUp, Activity, Zap, Briefcase, Eye, BarChart3, Bell, Newspaper, Settings, Moon } from "lucide-react";
 
 const NAV_ITEMS = [
   { id: "overview",   label: "Overview",        icon: LayoutDashboard, group: "Dashboard" },
   { id: "long_term",  label: "Long-Term",       icon: TrendingUp,      group: "Trader Modes", color: "from-emerald-500 to-teal-500" },
   { id: "swing",      label: "Swing Trading",   icon: Activity,        group: "Trader Modes", color: "from-amber-500 to-orange-500" },
   { id: "short_term", label: "Short-Term",      icon: Zap,             group: "Trader Modes", color: "from-fuchsia-500 to-pink-500" },
+  { id: "evening_scanner", label: "Evening Scanner", icon: Moon,        group: "Trader Modes", color: "from-violet-500 to-indigo-500" },
   { id: "news",       label: "News & Sentiment", icon: Newspaper,      group: "Markets" },
   { id: "sectors",    label: "Sectors",         icon: BarChart3,       group: "Markets" },
   { id: "alerts",     label: "Alerts",          icon: Bell,            group: "Markets" },

@@ -9,6 +9,7 @@ import PortfolioView from "@/components/views/PortfolioView";
 import WatchlistView from "@/components/views/WatchlistView";
 import SectorsView from "@/components/views/SectorsView";
 import AlertsView from "@/components/views/AlertsView";
+import EveningScannerView from "@/components/views/EveningScannerView";
 import NewsView from "@/components/views/NewsView";
 import DeepDiveSheet from "@/components/DeepDiveSheet";
 import { toast } from "sonner";
@@ -138,6 +139,8 @@ export default function Dashboard() {
         return <SectorsView />;
       case "alerts":
         return <AlertsView />;
+      case "evening_scanner":
+        return <EveningScannerView onSelectStock={(t) => setSelectedStock(t)} />;
       default:
         return <OverviewView onNavigate={setSection} />;
     }

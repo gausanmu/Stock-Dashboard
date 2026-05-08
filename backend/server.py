@@ -24,7 +24,7 @@ from yf_fetcher import fetch_ticker
 import cache
 import db
 import scan_worker
-from scan_worker import refresh_universe, get_latest_scan, scan_state
+from scan_worker import refresh_universe, get_latest_scan, scan_state, evening_scan_state, get_latest_evening_scan, refresh_evening_scan
 import nse_live
 import intraday_scanner
 
@@ -264,6 +264,49 @@ async def live_bull_scan(index: str = "NIFTY 50"):
             "X-Accel-Buffering": "no",
         }
     )
+
+
+# ── EVENING SCANNER endpoints ────────────────────────────────────
+@app.get("/api/evening/results")
+async def get_evening_results(tier: Optional[str] = None,
+                              limit: Optional[int] = None):
+    """Return latest evening scan results (pre-rally predictions)."""
+    latest = get_latest_evening_scan()
+    results = latest.get("results", [])
+
+    if tier:
+        results = [r for r in results if r.get("conviction_tier") == tier.upper()]
+    if limit:
+        results = results[:limit]
+
+    return {
+        "results": results,
+        "count": len(results),
+        "timestamp": latest.get("timestamp"),
+        "status": latest.get("status"),
+        "tiers": {
+            "ROCKET": sum(1 for r in latest.get("results", []) if r.get("conviction_tier") == "ROCKET"),
+            "STRONG": sum(1 for r in latest.get("results", []) if r.get("conviction_tier") == "STRONG"),
+            "WATCH": sum(1 for r in latest.get("results", []) if r.get("conviction_tier") == "WATCH"),
+        }
+    }
+
+
+@app.get("/api/evening/status")
+async def get_evening_status():
+    """Check evening scan progress."""
+    return evening_scan_state
+
+
+@app.post("/api/evening/scan")
+async def trigger_evening_scan(background_tasks: BackgroundTasks,
+                               universe: str = "evening_default"):
+    """Manually trigger an evening scan (for testing or weekend analysis)."""
+    if evening_scan_state.get("running"):
+        raise HTTPException(status_code=400, detail="Evening scan already running")
+    background_tasks.add_task(refresh_evening_scan, universe, True)
+    return {"status": "started", "universe": universe}
+
 
 
 @app.get("/api/live/bulls")
