@@ -5,10 +5,18 @@ import { cn } from "@/lib/utils";
 import { Zap, Radio, TrendingUp, Volume2, Target, Clock, AlertTriangle, RefreshCw } from "lucide-react";
 
 const INDEX_OPTIONS = [
+  { value: "ALL_NSE", label: "Entire Market (500+ stocks)" },
   { value: "NIFTY 50", label: "Nifty 50" },
   { value: "NIFTY NEXT 50", label: "Nifty Next 50" },
   { value: "NIFTY MIDCAP 50", label: "Nifty Midcap 50" },
+  { value: "NIFTY SMLCAP 100", label: "Nifty Smallcap 100" },
   { value: "NIFTY BANK", label: "Bank Nifty" },
+  { value: "NIFTY METAL", label: "Nifty Metal" },
+  { value: "NIFTY PHARMA", label: "Nifty Pharma" },
+  { value: "NIFTY AUTO", label: "Nifty Auto" },
+  { value: "NIFTY ENERGY", label: "Nifty Energy" },
+  { value: "NIFTY REALTY", label: "Nifty Realty" },
+  { value: "SECURITIES IN F&O", label: "All F&O Stocks" },
 ];
 
 const TAG_COLORS = {
@@ -133,7 +141,9 @@ export default function LiveScanner() {
     setProgress({ current: 0, total: 0, found: 0 });
     setError("");
 
-    const url = api.getLiveScanURL(index);
+    // Use deep-scan for entire market, regular scan for single index
+    const isDeep = index === "ALL_NSE";
+    const url = isDeep ? api.getLiveDeepScanURL() : api.getLiveScanURL(index);
     const es = new EventSource(url);
     eventSourceRef.current = es;
 
@@ -169,19 +179,19 @@ export default function LiveScanner() {
     es.onerror = () => {
       setScanning(false);
       es.close();
-      // If no bulls found and no error, try the snapshot API as fallback
-      if (bulls.length === 0) {
-        setError("SSE connection failed. Trying snapshot mode...");
-        api.getLiveBulls(index)
-          .then(res => {
-            setBulls(res.data.bulls || []);
-            setLastScan(new Date().toLocaleTimeString());
-            setError("");
-          })
-          .catch(err => setError("Could not fetch live data. Market may be closed."));
-      }
+      // Fallback to snapshot API
+      setError("SSE connection ended. Trying snapshot mode...");
+      const fallback = isDeep ? api.getLiveDeepBulls() : api.getLiveBulls(index);
+      fallback
+        .then(res => {
+          setBulls(res.data.bulls || []);
+          setLastScan(new Date().toLocaleTimeString());
+          setProgress(prev => ({ ...prev, total: res.data.total_scanned || 0, found: (res.data.bulls || []).length }));
+          setError("");
+        })
+        .catch(() => setError("Could not fetch live data. Market may be closed."));
     };
-  }, [scanning, index, bulls.length]);
+  }, [scanning, index]);
 
   // Cleanup on unmount
   useEffect(() => {

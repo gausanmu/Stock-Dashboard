@@ -214,3 +214,93 @@ def fetch_all_nse_stocks(index_list: List[str] = None) -> List[dict]:
         time.sleep(0.5)
     
     return list(all_stocks.values())
+
+
+def fetch_entire_market() -> List[dict]:
+    """
+    Fetch live data for the ENTIRE NSE market by scanning all major indices.
+    Covers 500+ unique stocks across large, mid, and small caps.
+    Each index call returns ~30-100 stocks in bulk (no per-ticker fetching).
+    
+    Total API calls: ~12 (one per index). Total time: ~15 seconds.
+    """
+    # Every major NSE index. Each call gives us all constituent stocks instantly.
+    indices = [
+        "NIFTY 50",
+        "NIFTY NEXT 50",
+        "NIFTY MIDCAP 50",
+        "NIFTY MIDCAP 100",
+        "NIFTY SMLCAP 100",
+        "NIFTY 200",
+        "NIFTY 500",
+        "NIFTY BANK",
+        "NIFTY AUTO",
+        "NIFTY FINANCIAL SERVICES",
+        "NIFTY FMCG",
+        "NIFTY IT",
+        "NIFTY MEDIA",
+        "NIFTY METAL",
+        "NIFTY PHARMA",
+        "NIFTY PSU BANK",
+        "NIFTY REALTY",
+        "NIFTY ENERGY",
+        "SECURITIES IN F&O",
+    ]
+    
+    all_stocks = {}
+    failed = 0
+    for idx in indices:
+        try:
+            quotes = fetch_index_quotes(idx)
+            for q in quotes:
+                sym = q.get("symbol", "")
+                if sym and sym not in all_stocks:
+                    all_stocks[sym] = q
+            logger.info(f"nse_live: {idx} -> {len(quotes)} stocks")
+        except Exception as e:
+            logger.warning(f"nse_live: failed to fetch {idx}: {e}")
+            failed += 1
+        time.sleep(0.3)  # Be polite to NSE
+    
+    logger.info(f"nse_live: total unique stocks={len(all_stocks)}, indices_failed={failed}")
+    return list(all_stocks.values())
+
+
+def fetch_most_active() -> List[dict]:
+    """Fetch most active stocks by volume from NSE."""
+    data = _nse_get("/api/live-analysis-most-active")
+    if not data or "data" not in data:
+        return []
+    results = []
+    for item in data.get("data", []):
+        results.append({
+            "symbol": item.get("symbol", ""),
+            "name": item.get("symbol", ""),
+            "ltp": item.get("lastPrice", 0),
+            "prev_close": item.get("previousClose", 0),
+            "change_pct": item.get("pChange", 0),
+            "volume": item.get("totalTradedVolume", 0),
+            "value": item.get("totalTradedValue", 0),
+        })
+    return results
+
+
+def normalize_gainer_format(gainer: dict) -> dict:
+    """Convert NSE gainers API format to our standard quote format."""
+    return {
+        "symbol": gainer.get("symbol", ""),
+        "name": gainer.get("symbol", ""),
+        "open": gainer.get("open_price", 0) or gainer.get("open", 0),
+        "high": gainer.get("high_price", 0) or gainer.get("dayHigh", 0),
+        "low": gainer.get("low_price", 0) or gainer.get("dayLow", 0),
+        "ltp": gainer.get("ltp", 0) or gainer.get("lastPrice", 0),
+        "prev_close": gainer.get("prev_price", 0) or gainer.get("previousClose", 0),
+        "change": gainer.get("net_price", 0) or gainer.get("change", 0),
+        "change_pct": gainer.get("perChange", 0) or gainer.get("pChange", 0),
+        "volume": gainer.get("trade_quantity", 0) or gainer.get("totalTradedVolume", 0),
+        "value": gainer.get("turnover", 0) or gainer.get("totalTradedValue", 0),
+        "year_high": gainer.get("yearHigh", 0),
+        "year_low": gainer.get("yearLow", 0),
+        "last_update": "",
+    }
+

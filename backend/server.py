@@ -302,6 +302,77 @@ async def live_bulls_snapshot(index: str = "NIFTY 50"):
     }
 
 
+@app.get("/api/live/deep-scan")
+async def live_deep_scan():
+    """
+    Stream bull detections across the ENTIRE NSE market (500+ stocks).
+    Scans all major indices: Nifty 50, Next 50, Midcap, Smallcap, Sectoral,
+    F&O stocks. Results stream via SSE as each bull is detected.
+    """
+    import json
+    stocks = nse_live.fetch_entire_market()
+    if not stocks:
+        async def error_stream():
+            yield f"data: {json.dumps({'type': 'error', 'message': 'Could not fetch live data from NSE.'})}\n\n"
+        return StreamingResponse(error_stream(), media_type="text/event-stream")
+
+    avg_volumes = {}
+    for s in stocks:
+        sym = s.get("symbol", "")
+        cached = cache.get_ticker(sym)
+        if cached and "vol_ratio" in cached:
+            last_vol = cached.get("volume", 0)
+            vr = cached.get("vol_ratio", 1)
+            if vr > 0:
+                avg_volumes[sym] = last_vol / vr
+
+    return StreamingResponse(
+        intraday_scanner.stream_bull_scan(stocks, avg_volumes),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+@app.get("/api/live/deep-bulls")
+async def live_deep_bulls():
+    """
+    Non-streaming: scan entire NSE market and return all detected bulls at once.
+    Covers 500+ stocks. Takes ~15 seconds to fetch all data from NSE.
+    """
+    stocks = nse_live.fetch_entire_market()
+    if not stocks:
+        return {"bulls": [], "error": "Could not fetch live data", "total_scanned": 0}
+
+    avg_volumes = {}
+    for s in stocks:
+        sym = s.get("symbol", "")
+        cached = cache.get_ticker(sym)
+        if cached and "vol_ratio" in cached:
+            last_vol = cached.get("volume", 0)
+            vr = cached.get("vol_ratio", 1)
+            if vr > 0:
+                avg_volumes[sym] = last_vol / vr
+
+    bulls = []
+    for stock in stocks:
+        result = intraday_scanner.analyze_bull_run(stock, avg_volumes.get(stock.get("symbol", ""), 0))
+        if result:
+            bulls.append(result)
+
+    bulls.sort(key=lambda x: x["bull_score"], reverse=True)
+    return {
+        "index": "ALL_NSE",
+        "total_scanned": len(stocks),
+        "bulls_found": len(bulls),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "bulls": bulls,
+    }
+
+
 # ── STOCKS endpoints (legacy preserved) ───────────────────────────
 @app.get("/api/stocks")
 async def get_stocks(regime: Optional[str] = None, sort: Optional[str] = None,

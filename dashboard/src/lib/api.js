@@ -41,8 +41,10 @@ export const api = {
   getLiveQuotes: (index = "NIFTY 50") => axios.get(`${API}/live/quotes`, { params: { index } }),
   getLiveGainers: () => axios.get(`${API}/live/gainers`),
   getLiveBulls: (index = "NIFTY 50") => axios.get(`${API}/live/bulls`, { params: { index } }),
-  // SSE stream URL (used with EventSource, not axios)
+  getLiveDeepBulls: () => axios.get(`${API}/live/deep-bulls`),
+  // SSE stream URLs (used with EventSource, not axios)
   getLiveScanURL: (index = "NIFTY 50") => `${API}/live/scan?index=${encodeURIComponent(index)}`,
+  getLiveDeepScanURL: () => `${API}/live/deep-scan`,
 
   // News & Sentiment
   getStockNews: (ticker, refresh = false) => axios.get(`${API}/news/${ticker}`, { params: { refresh } }),
