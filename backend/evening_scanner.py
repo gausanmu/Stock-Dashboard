@@ -662,7 +662,6 @@ def scan_single_stock(ticker_symbol, sector_performance=None):
                 {"id": "seller_exhaustion", "name": "Seller Exhaustion", "score": round(p3_score, 2), "reason": p3_reason, "icon": "🔄"},
                 {"id": "breakout_retest", "name": "Breakout Retest", "score": round(p4_score, 2), "reason": p4_reason, "icon": "🎯"},
                 {"id": "ema_power", "name": "EMA Power Align", "score": round(p5_score, 2), "reason": p5_reason, "icon": "⚡"},
-                {"id": "sector_rotation", "name": "Sector Rotation", "score": round(p6_score, 2), "reason": p6_reason, "icon": "🔀"},
             ],
             # Trade plan
             "trade_plan": levels,
